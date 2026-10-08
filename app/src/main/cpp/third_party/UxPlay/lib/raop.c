@@ -88,6 +88,7 @@ struct raop_s {
     /* activate support for HLS live streaming */
     bool hls_support;
     bool hls_pending;
+    void *video_play_conn;
   
     /* used in digest authentication */
     char *nonce;
@@ -120,9 +121,25 @@ struct raop_conn_s {
 
     char *client_session_id;
     bool authenticated;
+    bool salon_pin_valid;
+    bool salon_verified;
     bool have_active_remote;
 };
 typedef struct raop_conn_s raop_conn_t;
+
+/* One sender can use several TCP channels. Reserve ownership only after
+ * authentication or media setup, rather than counting protocol channels. */
+static raop_conn_t *salon_active_owner(raop_t *raop) {
+    for (int instance = 1; ; instance++) {
+        raop_conn_t *candidate = httpd_get_connection_by_type(raop->httpd, CONNECTION_TYPE_RAOP, instance);
+        if (!candidate) return NULL;
+        if (candidate->salon_verified || candidate->raop_rtp || candidate->raop_rtp_mirror) return candidate;
+    }
+}
+static bool salon_same_peer(const raop_conn_t *a, const raop_conn_t *b) {
+    return a && b && a->remotelen == b->remotelen && a->zone_id == b->zone_id &&
+        !memcmp(a->remote, b->remote, a->remotelen);
+}
 
 #include "raop_handlers.h"
 #include "http_handlers.h"
@@ -271,21 +288,12 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
 
     if (conn->connection_type == CONNECTION_TYPE_UNKNOWN) {
         if (cseq || ble) {
-            if (httpd_count_connection_type(raop->httpd, CONNECTION_TYPE_RAOP)) {
-                char ipaddr[40] = { '\0' };
-                utils_ipaddress_to_string(conn->remotelen, conn->remote, conn->zone_id, ipaddr, (int) (sizeof(ipaddr)));
-                if (httpd_nohold(raop->httpd)) {
-                    logger_log(raop->logger, LOGGER_INFO, "*****\"nohold\" feature: switch to new connection request from %s", ipaddr);		  
-                    httpd_remove_known_connections(raop->httpd);
-                    if (raop->callbacks.video_reset) {
-                        raop->callbacks.video_reset(raop->callbacks.cls, RESET_TYPE_NOHOLD);
-                    }
-                } else {
-                    logger_log(raop->logger, LOGGER_WARNING, "rejecting new connection request from %s", ipaddr);
-                    *response = http_response_create();
-                    http_response_init(*response, protocol, 409, "Conflict: Server is connected to another client");
-                    goto finish;
-                }
+            raop_conn_t *owner = salon_active_owner(raop);
+            if (owner && !salon_same_peer(owner, conn)) {
+                *response = http_response_create();
+                http_response_init(*response, protocol, 409, "Receiver busy");
+                http_response_set_disconnect(*response, 1);
+                goto finish;
             }
             logger_log(raop->logger, LOGGER_DEBUG, "New connection %p identified as Connection type RAOP", ptr);
             httpd_set_connection_type(raop->httpd, ptr, CONNECTION_TYPE_RAOP);
@@ -297,8 +305,19 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
             conn->client_session_id = (char *) calloc(strlen(client_session_id) + 1, sizeof(char));
             assert(conn->client_session_id);
             memcpy(conn->client_session_id, client_session_id, strlen(client_session_id));
+            raop_conn_t *salon_owner = salon_active_owner(raop);
+            if (salon_owner && !salon_same_peer(salon_owner, conn)) {
+                *response = http_response_create();
+                http_response_init(*response, protocol, 409, "Receiver busy");
+                goto finish;
+            }
+            if (raop->use_pin && (!salon_owner || !salon_owner->salon_verified)) {
+                *response = http_response_create();
+                http_response_init(*response, protocol, 470, "Client Authentication Failure");
+                goto finish;
+            }
             /* airplay video has been requested: shut down any running RAOP udp services */
-            raop_conn_t *raop_conn = (raop_conn_t *) httpd_get_connection_by_type(raop->httpd, CONNECTION_TYPE_RAOP, 1);
+            raop_conn_t *raop_conn = salon_active_owner(raop);
             if (raop_conn) {
                 raop_rtp_mirror_t *raop_rtp_mirror = raop_conn->raop_rtp_mirror;
                 if (raop_rtp_mirror) {
@@ -402,6 +421,29 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
     }
 
     logger_log(raop->logger, LOGGER_DEBUG, "Handling request %s with URL %s", method, url);
+    raop_conn_t *salon_owner_now = salon_active_owner(raop);
+    if (salon_owner_now && !salon_same_peer(salon_owner_now, conn) &&
+        (!strcmp(url, "/pair-verify") || !strcmp(method, "SETUP") || !strcmp(method, "RECORD"))) {
+        http_response_init(*response, protocol, 409, "Receiver busy");
+        http_response_set_disconnect(*response, 1);
+        goto finish;
+    }
+    /* Ignore probes in the UI, signal only an actual pairing request. */
+    if ((!strcmp(url, "/pair-pin-start") || !strcmp(url, "/pair-setup-pin") ||
+         !strcmp(url, "/pair-setup") || !strcmp(url, "/pair-verify")) && raop->callbacks.salon_handshake)
+        raop->callbacks.salon_handshake(raop->callbacks.cls);
+    if (raop->use_pin && (!strcmp(method, "SETUP") || !strcmp(method, "RECORD")) && !conn->salon_verified) {
+        http_response_init(*response, protocol, 470, "Client Authentication Failure");
+        goto finish;
+    }
+    if (!strcmp(url, "/play")) {
+        raop_conn_t *owner = salon_active_owner(raop);
+        bool same_peer = salon_same_peer(owner, conn);
+        if ((owner && !same_peer) || (raop->use_pin && (!same_peer || !owner->salon_verified))) {
+            http_response_init(*response, protocol, raop->use_pin ? 470 : 409, "Receiver unavailable or authentication required");
+            goto finish;
+        }
+    }
     raop_handler_t handler = NULL;
     if (!hls_request && !strcmp(protocol, "RTSP/1.0")) {
         if (!strcmp(method, "POST")) {
@@ -551,6 +593,13 @@ conn_destroy(void *ptr) {
     raop_t *raop = conn->raop;
     logger_log(raop->logger, LOGGER_DEBUG, "Destroying connection");
 
+    if (raop->video_play_conn == ptr) {
+        raop->video_play_conn = NULL;
+        if (raop->callbacks.video_reset) {
+            raop->callbacks.video_reset(raop->callbacks.cls, RESET_TYPE_HLS_CONN_CLOSED);
+        }
+    }
+
     if (raop->callbacks.conn_destroy) {
         raop->callbacks.conn_destroy(raop->callbacks.cls);
     }
@@ -640,6 +689,7 @@ raop_init(raop_callbacks_t *callbacks) {
 
     raop->hls_support = false;
     raop->hls_pending = false;
+    raop->video_play_conn = NULL;
     
     raop->nonce = NULL;
 
@@ -848,6 +898,7 @@ void raop_remove_known_connections(raop_t * raop) {
 }
 
 void raop_remove_hls_connections(raop_t * raop) {
+    raop->video_play_conn = NULL;
     httpd_remove_connections_by_type(raop->httpd, CONNECTION_TYPE_HLS);
     httpd_remove_connections_by_type(raop->httpd, CONNECTION_TYPE_PTTH);
     httpd_remove_connections_by_type(raop->httpd, CONNECTION_TYPE_AIRPLAY);
@@ -874,6 +925,7 @@ void raop_handle_eos(raop_t *raop) {
     assert (id >= 0);
     raop_destroy_airplay_video(raop, id);
     raop->current_video = -1;
+    raop->video_play_conn = NULL;
     /* reset video without deleting raop->airplay_video */
     raop->callbacks.video_reset(raop->callbacks.cls, RESET_TYPE_HLS_EOS);
 }

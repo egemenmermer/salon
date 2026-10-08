@@ -49,6 +49,8 @@ void android_callbacks_init(android_callback_ctx_t *ctx, JNIEnv *env, jobject ca
     ctx->playback_ready = 0;
 
     jclass cls = (*env)->GetObjectClass(env, callback_obj);
+    ctx->on_handshake = (*env)->GetMethodID(env, cls, "onHandshake", "()V");
+    ctx->on_authenticated = (*env)->GetMethodID(env, cls, "onAuthenticated", "()V");
     ctx->on_video_data = (*env)->GetMethodID(env, cls, "onVideoData", "([BJZ)V");
     ctx->on_audio_format = (*env)->GetMethodID(env, cls, "onAudioFormat", "(IIZ)V");
     ctx->on_video_size = (*env)->GetMethodID(env, cls, "onVideoSize", "(FFFF)V");
@@ -303,7 +305,7 @@ static bool _check_register(void *cls, const char *pk_str) {
 
 static void _video_play(void *cls, const char *location, const float start_position) {
     android_callback_ctx_t *ctx = (android_callback_ctx_t *)cls;
-    LOGI("video_play: %s @ %.2fs", location ? location : "(null)", start_position);
+    LOGI("video_play requested");
     pthread_mutex_lock(&ctx->playback_info_lock);
     ctx->play_ready = 0;
     pthread_mutex_unlock(&ctx->playback_info_lock);
@@ -383,9 +385,19 @@ static int _video_set_codec(void *cls, video_codec_t codec) {
     return 0;
 }
 
+static void _handshake(void *cls) {
+    android_callback_ctx_t *ctx = cls; JNIEnv *env = _get_env(ctx);
+    if (env) (*env)->CallVoidMethod(env, ctx->callback_obj, ctx->on_handshake);
+}
+static void _authenticated(void *cls) {
+    android_callback_ctx_t *ctx = cls; JNIEnv *env = _get_env(ctx);
+    if (env) (*env)->CallVoidMethod(env, ctx->callback_obj, ctx->on_authenticated);
+}
 void android_callbacks_fill(raop_callbacks_t *cbs, android_callback_ctx_t *ctx) {
     memset(cbs, 0, sizeof(raop_callbacks_t));
     cbs->cls = ctx;
+    cbs->salon_handshake = _handshake;
+    cbs->salon_authenticated = _authenticated;
 
     cbs->audio_process = _audio_process;
     cbs->video_process = _video_process;

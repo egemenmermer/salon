@@ -14,6 +14,8 @@ typedef struct {
     JavaVM *jvm;
     jobject callback_obj;
     raop_t *raop;
+    jmethodID on_handshake;
+    jmethodID on_authenticated;
     jmethodID on_video_data;
     jmethodID on_audio_format;
     jmethodID on_video_size;

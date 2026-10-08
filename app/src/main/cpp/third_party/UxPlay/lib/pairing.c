@@ -30,6 +30,7 @@
 #define SALT_IV "Pair-Verify-AES-IV"
 
 typedef struct srp_s {
+    bool proof_validated;
     unsigned char salt[SRP_SALT_SIZE];
     unsigned char verifier[SRP_VERIFIER_SIZE];
     unsigned char session_key[SRP_SESSION_KEY_SIZE];
@@ -515,7 +516,9 @@ srp_new_user(pairing_session_t *session, pairing_t *pairing, const char *device_
         return -2;
     }
 
-    get_random_bytes(session->srp->private_key, SRP_PRIVATE_KEY_SIZE);
+    if (get_random_bytes(session->srp->private_key, SRP_PRIVATE_KEY_SIZE) < 1) {
+        free(session->srp); session->srp = NULL; return -2;
+    }
     
     const unsigned char *srp_b = session->srp->private_key;
     unsigned char * srp_B = NULL;
@@ -530,7 +533,8 @@ srp_new_user(pairing_session_t *session, pairing_t *pairing, const char *device_
                                        (const unsigned char **) &srp_s, &len_s,
                                        (const unsigned char **) &srp_v, &len_v,
                                        NULL, NULL);
-    if (len_s != SRP_SALT_SIZE || len_v != SRP_VERIFIER_SIZE) {
+    if (!srp_s || !srp_v || len_s != SRP_SALT_SIZE || len_v != SRP_VERIFIER_SIZE) {
+        free(srp_s); free(srp_v); free(session->srp); session->srp = NULL;
         return -3;
     }
 
@@ -546,6 +550,8 @@ srp_new_user(pairing_session_t *session, pairing_t *pairing, const char *device_
                                     (const unsigned char **) &srp_B, &len_B,
                                     NULL, NULL, 1);
 
+    free(srp_s); free(srp_v);
+    if (!srp_B || len_B <= 0) { free(session->srp); session->srp = NULL; return -4; }
     *pk = (char *) srp_B;
     *len_pk = len_B;
 
@@ -555,6 +561,9 @@ srp_new_user(pairing_session_t *session, pairing_t *pairing, const char *device_
 int
 srp_validate_proof(pairing_session_t *session, pairing_t *pairing, const unsigned char *A,
                     int len_A, unsigned char *proof, int client_proof_len, int proof_len) {
+    if (!session || !session->srp || !A || len_A <= 0 || len_A > SRP_PK_SIZE || !proof ||
+        client_proof_len != 20 || proof_len < 20) return -1;
+    session->srp->proof_validated = false;
     int authenticated  = 0;
     const unsigned char *B =  NULL;
     const unsigned char *b = session->srp->private_key;
@@ -571,6 +580,7 @@ srp_validate_proof(pairing_session_t *session, pairing_t *pairing, const unsigne
                                                     b, len_b,
                                                     &B, &len_B, NULL, NULL, 1);
 
+    if (!verifier) { free(session->srp); session->srp = NULL; return -1; }
     srp_verifier_verify_session(verifier, proof, &M2);
     authenticated = srp_verifier_is_authenticated(verifier);
     if (authenticated == 0) {
@@ -584,6 +594,7 @@ srp_validate_proof(pairing_session_t *session, pairing_t *pairing, const unsigne
     if (len_K != SRP_SESSION_KEY_SIZE) {
         return -2;
     }
+    session->srp->proof_validated = true;
     memcpy(session->srp->session_key, session_key, len_K);
     memcpy(proof, M2, proof_len);
     srp_verifier_delete(verifier);
@@ -592,6 +603,7 @@ srp_validate_proof(pairing_session_t *session, pairing_t *pairing, const unsigne
 int
 srp_confirm_pair_setup(pairing_session_t *session, pairing_t *pairing,
                        unsigned char *epk, unsigned char *auth_tag) {
+    if (!session || !session->srp || !session->srp->proof_validated || !epk || !auth_tag) return -1;
     unsigned char aesKey[16] = {0}, aesIV[16] = {0};
     unsigned char hash[SHA512_DIGEST_LENGTH] = {0};
     unsigned char pk[ED25519_KEY_SIZE] = {0};

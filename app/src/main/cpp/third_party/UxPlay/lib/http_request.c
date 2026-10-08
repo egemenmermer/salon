@@ -31,6 +31,7 @@ struct http_request_s {
     const char *method;
     char *url;
     char protocol[9];
+    bool salon_version_started;
 
     char **headers;
     int headers_size;
@@ -40,6 +41,7 @@ struct http_request_s {
     int datalen;
 
     int complete;
+    size_t salon_header_bytes;
 };
 
 static int
@@ -47,6 +49,7 @@ on_url(llhttp_t *parser, const char *at, size_t length)
 {
     http_request_t *request = parser->data;
     int urllen = request->url ? strlen(request->url) : 0;
+    if (length > 8192 || (size_t)urllen > 8192 - length) return HPE_USER;
 
     request->url = realloc(request->url, urllen+length+1);
     assert(request->url);
@@ -54,15 +57,39 @@ on_url(llhttp_t *parser, const char *at, size_t length)
     request->url[urllen] = '\0';
     strncat(request->url, at, length);
 
-    strncpy(request->protocol, at + length + 1, 8);
 
     return 0;
+}
+
+static int
+on_protocol(llhttp_t *parser, const char *at, size_t length)
+{
+    http_request_t *request = parser->data;
+    size_t used = strlen(request->protocol);
+    if (length > 8 || used > 8 - length) return HPE_USER;
+    memcpy(request->protocol + used, at, length);
+    request->protocol[used + length] = '\0';
+    return 0;
+}
+
+static int
+on_version(llhttp_t *parser, const char *at, size_t length)
+{
+    http_request_t *request = parser->data;
+    if (!request->salon_version_started) {
+        int ret = on_protocol(parser, "/", 1);
+        if (ret) return ret;
+        request->salon_version_started = true;
+    }
+    return on_protocol(parser, at, length);
 }
 
 static int
 on_header_field(llhttp_t *parser, const char *at, size_t length)
 {
     http_request_t *request = parser->data;
+    if (length > 65536 || request->salon_header_bytes > 65536 - length || request->headers_size >= 256) return HPE_USER;
+    request->salon_header_bytes += length;
 
     /* Check if our index is a value */
     if (request->headers_index%2 == 1) {
@@ -98,6 +125,8 @@ static int
 on_header_value(llhttp_t *parser, const char *at, size_t length)
 {
     http_request_t *request = parser->data;
+    if (length > 65536 || request->salon_header_bytes > 65536 - length || request->headers_size >= 256) return HPE_USER;
+    request->salon_header_bytes += length;
 
     /* Check if our index is a field */
     if (request->headers_index%2 == 0) {
@@ -124,6 +153,7 @@ on_body(llhttp_t *parser, const char *at, size_t length)
 {
     http_request_t *request = parser->data;
 
+    if (length > 16 * 1024 * 1024 || (size_t)request->datalen > 16 * 1024 * 1024 - length) return HPE_USER;
     request->data = realloc(request->data, request->datalen + length);
     assert(request->data);
 
@@ -152,6 +182,8 @@ http_request_init(void)
 
     llhttp_settings_init(&request->parser_settings);
     request->parser_settings.on_url = &on_url;
+    request->parser_settings.on_protocol = &on_protocol;
+    request->parser_settings.on_version = &on_version;
     request->parser_settings.on_header_field = &on_header_field;
     request->parser_settings.on_header_value = &on_header_value;
     request->parser_settings.on_body = &on_body;

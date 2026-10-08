@@ -261,6 +261,8 @@ raop_handler_pairpinstart(raop_conn_t *conn,
         pin_4 = random_pin();
         if (pin_4 < 0) {
             logger_log(raop->logger, LOGGER_ERR, "Failed to generate random pin");
+            raop->pin = 0; http_response_init(response, "RTSP/1.0", 500, "PIN generation failed");
+            http_response_set_disconnect(response, 1); return;
         } else {
             raop->pin = (unsigned short) pin_4 % 10000;
         }
@@ -270,7 +272,6 @@ raop_handler_pairpinstart(raop_conn_t *conn,
     if (raop->callbacks.display_pin) {
          raop->callbacks.display_pin(raop->callbacks.cls, pin);
     }
-    logger_log(raop->logger, LOGGER_INFO, "*** CLIENT MUST NOW ENTER PIN = \"%s\" AS AIRPLAY PASSWORD", pin);
 }
 
 static void
@@ -316,7 +317,7 @@ raop_handler_pairsetup_pin(raop_conn_t *conn,
         char *method = NULL;
         char *user = NULL;
         plist_get_string_val(req_method_node, &method);
-        if (strncmp(method, "pin", strlen (method))) {
+        if (strcmp(method, "pin")) {
             logger_log(raop->logger, LOGGER_ERR, "error, required method is \"pin\", client requested \"%s\"", method);
             free (method);
             plist_free (req_root_node);
@@ -342,6 +343,7 @@ raop_handler_pairsetup_pin(raop_conn_t *conn,
         plist_t res_root_node = plist_new_dict();
         plist_t res_salt_node = plist_new_data(salt, len_salt);
         plist_t res_pk_node = plist_new_data(pk, len_pk);
+        free((void *)pk);
         plist_dict_set_item(res_root_node, "pk", res_pk_node);	
         plist_dict_set_item(res_root_node, "salt", res_salt_node);
         plist_to_bin(res_root_node, response_data, (uint32_t*) response_datalen);
@@ -362,6 +364,9 @@ raop_handler_pairsetup_pin(raop_conn_t *conn,
             char *str = utils_data_to_string((const unsigned char *) client_proof, client_proof_len, 20);
             logger_log(raop->logger, LOGGER_DEBUG, "client SRP6a proof <M> :\n%s", str);	    
             free (str);
+        }
+        if (client_proof_len != 20 || client_pk_len == 0 || client_pk_len > SRP_PK_SIZE || !client_pk || !client_proof) {
+            free(client_proof); free(client_pk); plist_free(req_root_node); goto authentication_failed;
         }
         memcpy(proof, client_proof, (int) client_proof_len);
         free (client_proof);
@@ -405,6 +410,9 @@ raop_handler_pairsetup_pin(raop_conn_t *conn,
             free (str);
         }
 
+        if (client_epk_len != ED25519_KEY_SIZE || client_authtag_len != GCM_AUTHTAG_SIZE || !client_epk || !client_authtag) {
+            free(client_epk); free(client_authtag); plist_free(req_root_node); goto authentication_failed;
+        }
         memcpy(epk, client_epk, ED25519_KEY_SIZE);
         memcpy(authtag, client_authtag, GCM_AUTHTAG_SIZE);
         free (client_authtag);
@@ -417,6 +425,7 @@ raop_handler_pairsetup_pin(raop_conn_t *conn,
         } else {
             logger_log(raop->logger, LOGGER_DEBUG, "pair-pin-setup success\n");
         }
+        conn->salon_pin_valid = true;
         pairing_session_set_setup_status(conn->session);
         plist_t res_root_node = plist_new_dict();
         plist_t res_epk_node = plist_new_data((const char *) epk, 32);
@@ -466,14 +475,10 @@ raop_handler_pairverify(raop_conn_t *conn,
                         char **response_data, int *response_datalen)
 {
     raop_t *raop = conn->raop;
-    bool register_check = false;  
+    bool register_check = raop->use_pin && !conn->salon_pin_valid;  
     if (pairing_session_check_handshake_status(conn->session)) {
-        if (raop->use_pin) {
-            pairing_session_set_setup_status(conn->session);
-            register_check = true;
-        } else {
-            return;
-        }
+        pairing_session_set_setup_status(conn->session);
+        register_check = raop->use_pin;
     }
     unsigned char public_key[X25519_KEY_SIZE];
     unsigned char signature[PAIRING_SIG_SIZE];
@@ -512,6 +517,8 @@ raop_handler_pairverify(raop_conn_t *conn,
             }
 
             if (!registered_client) {
+                http_response_init(response, "RTSP/1.0", 470, "Client Authentication Failure");
+                http_response_set_disconnect(response, 1);
                 return;
             }
         }
@@ -535,6 +542,8 @@ raop_handler_pairverify(raop_conn_t *conn,
             http_response_set_disconnect(response, 1);
             return;
         }
+        conn->salon_verified = true;
+        if (raop->callbacks.salon_authenticated) raop->callbacks.salon_authenticated(raop->callbacks.cls);
         logger_log(raop->logger, LOGGER_DEBUG, "pair-verify: signature is verified");	    
         http_response_add_header(response, "Content-Type", "application/octet-stream");
         break;
@@ -665,6 +674,8 @@ raop_handler_setup(raop_conn_t *conn,
                 int pin_4  = random_pin();
                 if (pin_4 < 0) {
                     logger_log(raop->logger, LOGGER_ERR, "Failed to generate random pin");
+            raop->pin = 0; http_response_init(response, "RTSP/1.0", 500, "PIN generation failed");
+            http_response_set_disconnect(response, 1); return;
                     pin_4 = 1234;
                 }
                 if ((raop->random_pw =  (char *) calloc(pin_len + 1 + 18, sizeof(char)))) {
@@ -681,8 +692,7 @@ raop_handler_setup(raop_conn_t *conn,
                 if (raop->callbacks.display_pin) {
                     raop->callbacks.display_pin(raop->callbacks.cls, raop->random_pw);
                 }
-                logger_log(raop->logger, LOGGER_INFO, "*** CLIENT MUST NOW ENTER PIN = \"%s\" AS AIRPLAY PASSWORD", raop->random_pw);
-                raop->auth_fail_count++;
+                            raop->auth_fail_count++;
             }
 	    if (len && !conn->authenticated) {
  	        if (len == -1) {
@@ -1133,24 +1143,26 @@ raop_handler_set_parameter(raop_conn_t *conn,
     if (!strcmp(content_type, "text/parameters")) {
         char *datastr = NULL;
         datastr = calloc(1, datalen + 1);
-        if (data && datastr && conn->raop_rtp) {
+        if (data && datastr) {
             memcpy(datastr, data, datalen);
             if ((datalen >= 8) && !strncmp(datastr, "volume: ", 8)) {
                 float vol = 0.0f;
                 sscanf(datastr+8, "%f", &vol);
-                if (raop_rtp_is_running(conn->raop_rtp)) {
+                if (conn->raop_rtp && raop_rtp_is_running(conn->raop_rtp)) {
                     raop_rtp_set_volume(conn->raop_rtp, vol);
                 } else if (raop->callbacks.audio_set_volume) {
                     /* set volume in playbin (hls) */
                     raop->callbacks.audio_set_volume(raop->callbacks.cls, vol);
                 }
             } else if ((datalen >= 10) && !strncmp(datastr, "progress: ", 10)) {
-                uint32_t start = 0, curr = 0, end = 0;
-                sscanf(datastr+10, "%"PRIu32"/%"PRIu32"/%"PRIu32, &start, &curr, &end);
-                raop_rtp_set_progress(conn->raop_rtp, start, curr, end);
+                if (conn->raop_rtp) {
+                    uint32_t start = 0, curr = 0, end = 0;
+                    sscanf(datastr+10, "%"PRIu32"/%"PRIu32"/%"PRIu32, &start, &curr, &end);
+                    raop_rtp_set_progress(conn->raop_rtp, start, curr, end);
+                } else {
+                    logger_log(raop->logger, LOGGER_WARNING, "RAOP not initialized at SET_PARAMETER");
+                }
             }
-        } else if (!conn->raop_rtp) {
-            logger_log(raop->logger, LOGGER_WARNING, "RAOP not initialized at SET_PARAMETER");
         }
         free(datastr);
     } else if (!strcmp(content_type, "image/jpeg") || !strcmp(content_type, "image/png")) {

@@ -65,7 +65,8 @@ typedef enum reset_type_e {
     RESET_TYPE_HLS_SHUTDOWN,
     RESET_TYPE_HLS_EOS,
     RESET_TYPE_ON_VIDEO_PLAY,
-    RESET_TYPE_RTP_TO_HLS_TEARDOWN
+    RESET_TYPE_RTP_TO_HLS_TEARDOWN,
+    RESET_TYPE_HLS_CONN_CLOSED
 } reset_type_t;
 
 struct raop_callbacks_s {
@@ -81,6 +82,8 @@ struct raop_callbacks_s {
   
   
     /* Optional but recommended callback functions (probably not optional, check this)*/
+    void (*salon_handshake)(void *cls);
+    void (*salon_authenticated)(void *cls);
     void  (*conn_init)(void *cls);
     void  (*conn_destroy)(void *cls);
   //void  (*conn_teardown)(void *cls, bool *teardown_96, bool *teardown_110 ); /*not used */

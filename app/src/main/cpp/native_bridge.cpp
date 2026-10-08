@@ -25,6 +25,32 @@ extern "C" {
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
+static std::string java_utf8(JNIEnv *env, jstring value) {
+    jclass cls = env->FindClass("java/lang/String");
+    jmethodID method = env->GetMethodID(cls, "getBytes", "(Ljava/lang/String;)[B");
+    jstring charset = env->NewStringUTF("UTF-8");
+    jbyteArray bytes = (jbyteArray)env->CallObjectMethod(value, method, charset);
+    std::string result;
+    if(bytes) {
+        result.resize(env->GetArrayLength(bytes));
+        env->GetByteArrayRegion(bytes, 0, result.size(), (jbyte *)result.data());
+        env->DeleteLocalRef(bytes);
+    }
+    env->DeleteLocalRef(charset); env->DeleteLocalRef(cls);
+    return result;
+}
+static jstring utf8_java(JNIEnv *env, const char *value) {
+    if(!value) return nullptr;
+    jclass cls=env->FindClass("java/lang/String");
+    jmethodID ctor=env->GetMethodID(cls,"<init>","([BLjava/lang/String;)V");
+    jbyteArray bytes=env->NewByteArray(strlen(value));
+    env->SetByteArrayRegion(bytes,0,strlen(value),(const jbyte *)value);
+    jstring charset=env->NewStringUTF("UTF-8");
+    jstring result=(jstring)env->NewObject(cls,ctor,bytes,charset);
+    env->DeleteLocalRef(bytes); env->DeleteLocalRef(charset); env->DeleteLocalRef(cls);
+    return result;
+}
+
 /* Holds all native state for one server instance */
 typedef struct {
     raop_t *raop;
@@ -41,6 +67,7 @@ static void _log_callback(void *cls, int level, const char *msg) {
     if (level >= 5) prio = ANDROID_LOG_ERROR;
     else if (level >= 4) prio = ANDROID_LOG_WARN;
     else if (level >= 3) prio = ANDROID_LOG_INFO;
+    if (strstr(msg,"PIN") || strstr(msg,"pin") || strstr(msg,"password") || strstr(msg,"http://") || strstr(msg,"https://") || strstr(msg,"signature")) return;
     __android_log_print(prio, TAG, "%s", msg);
 }
 
@@ -75,7 +102,8 @@ Java_io_github_jqssun_airplay_bridge_NativeBridge_nativeInit(
     raop_set_log_callback(ctx->raop, _log_callback, NULL);
 
     const char *keyfile_c = env->GetStringUTFChars(keyFile, NULL);
-    const char *name_c = env->GetStringUTFChars(name, NULL);
+    std::string name_utf8 = java_utf8(env, name);
+    const char *name_c = name_utf8.c_str();
 
     char device_id[18];
     snprintf(device_id, sizeof(device_id), "%02X:%02X:%02X:%02X:%02X:%02X",
@@ -86,6 +114,12 @@ Java_io_github_jqssun_airplay_bridge_NativeBridge_nativeInit(
     int ret = raop_init2(ctx->raop, nohold ? 1 : 0, device_id, keyfile_c);
     if (ret < 0) {
         LOGE("raop_init2 failed: %d", ret);
+        env->ReleaseStringUTFChars(keyFile, keyfile_c);
+        
+        raop_destroy(ctx->raop);
+        android_callbacks_destroy(&ctx->cb_ctx, env);
+        delete ctx;
+        return 0;
     }
 
     if (requirePin) {
@@ -93,7 +127,12 @@ Java_io_github_jqssun_airplay_bridge_NativeBridge_nativeInit(
         int pin = random_pin();
         if (pin < 0) {
             LOGE("Failed to generate random pin");
-            pin = 1234;
+            env->ReleaseStringUTFChars(keyFile, keyfile_c);
+            
+            raop_destroy(ctx->raop);
+            android_callbacks_destroy(&ctx->cb_ctx, env);
+            delete ctx;
+            return 0;
         }
         raop_set_plist(ctx->raop, "pin", pin + 10000);
     }
@@ -109,7 +148,7 @@ Java_io_github_jqssun_airplay_bridge_NativeBridge_nativeInit(
     }
 
     env->ReleaseStringUTFChars(keyFile, keyfile_c);
-    env->ReleaseStringUTFChars(name, name_c);
+    
 
     ctx->log = std::make_shared<LogSink>();
     ctx->log->bind(env, callback);
@@ -258,7 +297,7 @@ Java_io_github_jqssun_airplay_bridge_NativeBridge_nativeGetRaopServiceName(
 
     server_ctx_t *ctx = (server_ctx_t *)(intptr_t)handle;
     if (!ctx || !ctx->dnssd) return NULL;
-    return env->NewStringUTF(android_dnssd_get_raop_servname(ctx->dnssd));
+    return utf8_java(env, android_dnssd_get_raop_servname(ctx->dnssd));
 }
 
 extern "C"
@@ -270,7 +309,7 @@ Java_io_github_jqssun_airplay_bridge_NativeBridge_nativeGetServerName(
     if (!ctx || !ctx->dnssd) return NULL;
     int len = 0;
     const char *name = dnssd_get_name(ctx->dnssd, &len);
-    return env->NewStringUTF(name);
+    return utf8_java(env, name);
 }
 
 extern "C"
