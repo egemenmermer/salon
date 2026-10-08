@@ -10,11 +10,13 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffile-prefix-map=${CMAKE_SOURCE_DIR}=. 
 set(UXPLAY_LIB third_party/UxPlay/lib)
 
 # ---------- OpenSSL (built from source via openssl-cmake) ----------
+set(OPENSSL_BUILD_HASH "7bdf55ac20f2779e99e5eca306f824fad2b37dee5a06cc35ed5a8b85a6060010" CACHE STRING "" FORCE)
 set(BUILD_OPENSSL ON CACHE BOOL "" FORCE)
+set(OPENSSL_USE_STATIC_LIBS ON CACHE BOOL "" FORCE)
 set(OPENSSL_BUILD_VERSION "3.4.4" CACHE STRING "" FORCE)
 set(CROSS_ANDROID ON CACHE BOOL "" FORCE)
 string(REGEX MATCH "[0-9]+" AIRPLAY_ANDROID_API "${ANDROID_PLATFORM}")
-set(OPENSSL_PARAMS "-D__ANDROID_API__=${AIRPLAY_ANDROID_API}" CACHE STRING "" FORCE)
+set(OPENSSL_PARAMS "-D__ANDROID_API__=${AIRPLAY_ANDROID_API} -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384" CACHE STRING "" FORCE)
 set(FORWARD_ANDROID_NDK_ROOT "${ANDROID_NDK}" CACHE STRING "" FORCE) # CI
 
 list(PREPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
@@ -34,8 +36,11 @@ if(SANITIZE)
     add_link_options(${SANITIZE_LDFLAGS})
 endif()
 
-# ---------- Oboe (low-latency audio output, via prefab AAR) ----------
-find_package(oboe REQUIRED CONFIG)
+# ---------- Oboe 1.9.3 (vendored, with the same NDK/runtime as the receiver) ----------
+set(BUILD_SHARED_LIBS OFF)
+add_subdirectory(third_party/oboe)
+set_target_properties(oboe PROPERTIES POSITION_INDEPENDENT_CODE ON)
+add_library(oboe::oboe ALIAS oboe)
 
 # ---------- ffmpeg (software ALAC decoder) ----------
 include(BuildFFmpeg)
@@ -144,7 +149,7 @@ target_compile_definitions(airplay_native PRIVATE
     TARGET_RT_LITTLE_ENDIAN=1
 )
 
-target_link_options(airplay_native PRIVATE "-Wl,--build-id=none")
+target_link_options(airplay_native PRIVATE "-Wl,--build-id=none" "-Wl,-z,max-page-size=16384" "-Wl,-z,common-page-size=16384")
 
 target_link_libraries(airplay_native
     llhttp
@@ -158,3 +163,5 @@ target_link_libraries(airplay_native
     log
     android
 )
+
+add_subdirectory(third_party/androidx-graphics-path)

@@ -17,6 +17,7 @@ val allAbis = listOf("arm64-v8a", "armeabi-v7a", "x86_64")
 android {
     namespace = "io.github.jqssun.airplay"
     compileSdk = 36
+    buildToolsVersion = "35.0.0"
     ndkVersion = "27.0.12077973"
 
     if (localProps.containsKey("storeFile")) {
@@ -31,15 +32,18 @@ android {
     }
 
     defaultConfig {
-        applicationId = "io.github.jqssun.airplay"
+        applicationId = "app.salon.receiver"
         minSdk = 24
         targetSdk = 36
-        versionCode = 31
-        versionName = "0.0.31"
+        versionCode = 1
+        versionName = "1.0.0"
 
         externalNativeBuild {
             cmake {
-                arguments += "-DANDROID_STL=c++_shared"
+                targets += listOf("airplay_native", "androidx.graphics.path")
+                arguments += "-DANDROID_STL=c++_static"
+                arguments += "-DCMAKE_JOB_POOLS=salon_compile=1"
+                arguments += "-DCMAKE_JOB_POOL_COMPILE=salon_compile"
                 arguments += "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
             }
         }
@@ -48,18 +52,19 @@ android {
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
         }
     }
 
     buildTypes {
         debug {
-            ndk { abiFilters += allAbis }
+            ndk { abiFilters += if (providers.gradleProperty("salonDebugX86").orNull == "true") listOf("x86_64") else listOf("arm64-v8a", "armeabi-v7a") }
         }
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfigs.findByName("release")?.let { signingConfig = it }
-            ndk { abiFilters += allAbis }
+            ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
         }
         // debuggable build with HWASan (arm64) + UBSan in native code
         create("sanitize") {
@@ -95,46 +100,29 @@ android {
     }
 }
 
-tasks.register("applyUxplayPatches") {
-    doLast {
-        fun git(vararg args: String): String {
-            val proc = ProcessBuilder("git", "-C", "$projectDir/src/main/cpp/third_party/UxPlay", *args)
-                .redirectErrorStream(true).start()
-            val out = proc.inputStream.bufferedReader().readText()
-            check(proc.waitFor() == 0) { "git ${args.joinToString(" ")} failed:\n$out" }
-            return out
-        }
-        val patches = file("src/main/cpp/patches/UxPlay").listFiles { f -> f.extension == "patch" }!!.sorted()
-        val touched = patches.flatMap { git("apply", "--numstat", it.path).trim().lines() }
-            .map { it.substringAfterLast("\t") }.distinct()
-        git("checkout", "--", *touched.toTypedArray())
-        patches.forEach { git("apply", "--unidiff-zero", it.path) }
-    }
+// Materialized patches are verified without resetting or downloading any source.
+val prepareSalonNative by tasks.registering(Exec::class) {
+    workingDir(rootProject.projectDir)
+    commandLine("python3", "scripts/prepare-native.py")
 }
-
-tasks.configureEach {
-    if (name.startsWith("configureCMake")) dependsOn("applyUxplayPatches")
-}
-
+tasks.named("preBuild") { dependsOn(prepareSalonNative) }
 tasks.withType<Zip>().configureEach {
     isReproducibleFileOrder = true
     isPreserveFileTimestamps = false
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime)
     implementation(libs.androidx.lifecycle.service)
     implementation(libs.androidx.lifecycle.viewmodel)
-    implementation(libs.androidx.datastore.prefs)
+    implementation(files("libs/graphics-path-1.0.1-java.aar"))
     implementation(libs.androidx.media)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.exoplayer.hls)
-    implementation(libs.media3.ui.compose.material3)
-    implementation(libs.media3.transformer)
     implementation(libs.kotlinx.coroutines)
-    implementation(libs.oboe)
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
@@ -148,3 +136,6 @@ dependencies {
     ksp(libs.hilt.compiler)
     implementation(libs.hilt.navigation.compose)
 }
+
+// Keep the original Java API; compile its vendored JNI sources with our 16 KB linker settings.
+configurations.configureEach { exclude(group = "androidx.graphics", module = "graphics-path") }

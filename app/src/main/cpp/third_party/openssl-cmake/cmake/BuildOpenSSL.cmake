@@ -38,7 +38,7 @@ if (NOT PATCH_PROGRAM)
 endif()
 
 # set variables
-ProcessorCount(NUM_JOBS)
+set(NUM_JOBS 2)
 set(OS "UNIX")
 
 if (OPENSSL_BUILD_HASH)
@@ -46,8 +46,9 @@ if (OPENSSL_BUILD_HASH)
 endif()
 
 # if already built, do not build again
-if (EXISTS ${OPENSSL_PREFIX})
-    message(WARNING "Not building OpenSSL again. Remove ${OPENSSL_PREFIX} for rebuild")
+if (EXISTS "${OPENSSL_PREFIX}/usr/local/lib/libssl.a" AND EXISTS "${OPENSSL_PREFIX}/usr/local/lib/libcrypto.a" AND EXISTS "${OPENSSL_PREFIX}/usr/local/include/openssl/configuration.h")
+    add_custom_target(openssl)
+    message(STATUS "Using already built OpenSSL archives: ${OPENSSL_PREFIX}")
 else()
     if (NOT OPENSSL_BUILD_VERSION)
         message(FATAL_ERROR "You must specify OPENSSL_BUILD_VERSION!")
@@ -177,23 +178,38 @@ else()
     # build OPENSSL_PATCH_COMMAND
     include(PatchOpenSSL)
 
+    if(OPENSSL_USE_STATIC_LIBS)
+        # Build only archives needed by the receiver, preserving the configured algorithms.
+        # OpenSSL's default 'all' target also recompiles every object for shared libraries.
+        set(SALON_OPENSSL_BUILD_COMMAND ${BUILD_ENV_TOOL} <SOURCE_DIR> -- ${MAKE_PROGRAM} -j ${NUM_JOBS} build_generated
+            COMMAND ${BUILD_ENV_TOOL} <SOURCE_DIR> -- ${MAKE_PROGRAM} -j ${NUM_JOBS} libssl.a libcrypto.a)
+        set(SALON_OPENSSL_INSTALL_COMMAND ${CMAKE_COMMAND} -E make_directory
+            ${OPENSSL_PREFIX}/usr/local/bin ${OPENSSL_PREFIX}/usr/local/lib
+            COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/include ${OPENSSL_PREFIX}/usr/local/include
+            COMMAND ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/libssl.a ${OPENSSL_PREFIX}/usr/local/lib/libssl.a
+            COMMAND ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/libcrypto.a ${OPENSSL_PREFIX}/usr/local/lib/libcrypto.a)
+    else()
+        set(SALON_OPENSSL_BUILD_COMMAND ${BUILD_ENV_TOOL} <SOURCE_DIR> -- ${MAKE_PROGRAM} -j ${NUM_JOBS})
+        set(SALON_OPENSSL_INSTALL_COMMAND ${BUILD_ENV_TOOL} <SOURCE_DIR> -- ${PERL_PATH_FIX_INSTALL}
+            COMMAND ${BUILD_ENV_TOOL} <SOURCE_DIR> -- ${MAKE_PROGRAM} DESTDIR=${OPENSSL_PREFIX} install_sw ${INSTALL_OPENSSL_MAN})
+    endif()
+
     # add openssl target
     ExternalProject_Add(openssl
-        URL https://mirror.viaduck.org/openssl/openssl-${OPENSSL_BUILD_VERSION}.tar.gz
+        URL "${CMAKE_CURRENT_SOURCE_DIR}/../sources/openssl-${OPENSSL_BUILD_VERSION}.tar.gz"
         ${OPENSSL_CHECK_HASH}
         UPDATE_COMMAND ""
 
         CONFIGURE_COMMAND ${BUILD_ENV_TOOL} <SOURCE_DIR> -- ${COMMAND_CONFIGURE}
         ${OPENSSL_PATCH_COMMAND}
 
-        BUILD_COMMAND ${BUILD_ENV_TOOL} <SOURCE_DIR> -- ${MAKE_PROGRAM} -j ${NUM_JOBS}
+        BUILD_COMMAND ${SALON_OPENSSL_BUILD_COMMAND}
         BUILD_BYPRODUCTS ${OPENSSL_BYPRODUCTS}
 
         TEST_BEFORE_INSTALL 1
         TEST_COMMAND ${COMMAND_TEST}
 
-        INSTALL_COMMAND ${BUILD_ENV_TOOL} <SOURCE_DIR> -- ${PERL_PATH_FIX_INSTALL}
-        COMMAND ${BUILD_ENV_TOOL} <SOURCE_DIR> -- ${MAKE_PROGRAM} DESTDIR=${OPENSSL_PREFIX} install_sw ${INSTALL_OPENSSL_MAN}
+        INSTALL_COMMAND ${SALON_OPENSSL_INSTALL_COMMAND}
         COMMAND ${CMAKE_COMMAND} -G ${CMAKE_GENERATOR} ${CMAKE_BINARY_DIR}                    # force CMake-reload
 
         LOG_INSTALL 1

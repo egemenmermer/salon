@@ -55,7 +55,11 @@ function(GetOpenSSLByproducts OPENSSL_PREFIX_PATH OPENSSL_BYPRODUCTS_VAR OPENSSL
         add_library(${OPENSSL_BASE_NAME}_shared_lib UNKNOWN IMPORTED GLOBAL)
         set_property(TARGET ${OPENSSL_BASE_NAME}_shared_lib PROPERTY IMPORTED_LOCATION ${OPENSSL_SHARED_LIB})
         
-        list(APPEND ${OPENSSL_BYPRODUCTS_VAR} ${OPENSSL_STATIC_LIB} ${OPENSSL_SHARED_LIB})
+        if(OPENSSL_USE_STATIC_LIBS)
+            list(APPEND ${OPENSSL_BYPRODUCTS_VAR} ${OPENSSL_STATIC_LIB})
+        else()
+            list(APPEND ${OPENSSL_BYPRODUCTS_VAR} ${OPENSSL_STATIC_LIB} ${OPENSSL_SHARED_LIB})
+        endif()
     endforeach()
     
     # returns

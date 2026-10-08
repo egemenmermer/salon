@@ -23,7 +23,7 @@ endif()
 # NDK's per-API clang wrappers live next to the generic clang driver
 get_filename_component(_ffmpeg_tc "${CMAKE_C_COMPILER}" DIRECTORY)
 
-ProcessorCount(_ffmpeg_jobs)
+set(_ffmpeg_jobs 2)
 if(_ffmpeg_jobs EQUAL 0)
     set(_ffmpeg_jobs 4)
 endif()
