@@ -1,0 +1,19 @@
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+/build/
+/app/build/
+/captures
+.externalNativeBuild/
+.cxx/
+
+*.jks
+# Salon local build and signing files
+*.p12
+*.keystore
+credentials.json
+.salon-signing/
+outputs/
+dist/
