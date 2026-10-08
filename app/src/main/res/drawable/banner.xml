@@ -1,39 +1,7 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="320dp"
-    android:height="180dp"
-    android:viewportWidth="320"
-    android:viewportHeight="180">
-
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M0,0h320v180H0z" />
-
-    <group
-        android:scaleX="0.1875"
-        android:scaleY="0.1875"
-        android:translateX="70">
-        <group
-            android:pivotX="480"
-            android:pivotY="480"
-            android:scaleX="0.5"
-            android:scaleY="0.5">
-            <group
-                android:translateX="16"
-                android:translateY="16">
-                <path
-                    android:fillColor="#C0C0C0"
-                    android:pathData="m240,840 l240,-240 l240,240L240,840ZM80,680v-480q0,-33 23.5,-56.5T160,120h640q33,0 56.5,23.5T880,200v480q0,33 -23.5,56.5T800,760H680v-80h120v-480H160v480h120v80H160q-33,0 -56.5,-23.5T80,680Zm400,-200Z" />
-            </group>
-            <group
-                android:translateX="12"
-                android:translateY="12">
-                <path
-                    android:fillColor="#9E9E9E"
-                    android:pathData="m240,840 l240,-240 l240,240L240,840ZM80,680v-480q0,-33 23.5,-56.5T160,120h640q33,0 56.5,23.5T880,200v480q0,33 -23.5,56.5T800,760H680v-80h120v-480H160v480h120v80H160q-33,0 -56.5,-23.5T80,680Zm400,-200Z" />
-            </group>
-            <path
-                android:fillColor="#424242"
-                android:pathData="m240,840 l240,-240 l240,240L240,840ZM80,680v-480q0,-33 23.5,-56.5T160,120h640q33,0 56.5,23.5T880,200v480q0,33 -23.5,56.5T800,760H680v-80h120v-480H160v480h120v80H160q-33,0 -56.5,-23.5T80,680Zm400,-200Z" />
-        </group>
-    </group>
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="160dp" android:height="90dp" android:viewportWidth="320" android:viewportHeight="180">
+<path android:fillColor="#111315" android:pathData="M0,0H320V180H0Z"/>
+<path android:fillColor="@android:color/transparent" android:strokeColor="#A7C7FF" android:strokeWidth="4" android:strokeLineJoin="round" android:pathData="M34,58H108V111H34Z M56,122H86 M71,111V122"/>
+<path android:fillColor="@android:color/transparent" android:strokeColor="#9BD0B0" android:strokeWidth="4" android:strokeLineCap="round" android:pathData="M51,78Q71,60 91,78 M60,88Q71,78 82,88 M70,98H72"/>
+<!-- Original line lettering: SALON -->
+<path android:fillColor="@android:color/transparent" android:strokeColor="#F4F4F5" android:strokeWidth="4" android:strokeLineJoin="round" android:strokeLineCap="round" android:pathData="M158,74H141V88H158V104H141 M169,104L180,74L191,104 M174,93H186 M202,74V104H220 M234,74H251V104H234Z M264,104V74L283,104V74"/>
 </vector>

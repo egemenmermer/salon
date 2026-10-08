@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 
@@ -20,16 +21,18 @@ fun VideoSurfaceView(
     applyAspectRatio: Boolean = true,
     modifier: Modifier = Modifier
 ) {
+    val available = rememberUpdatedState(onSurfaceAvailable)
+    val destroyed = rememberUpdatedState(onSurfaceDestroyed)
     val callbacks = remember {
         object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
-                onSurfaceAvailable(holder.surface)
+                available.value(holder.surface)
             }
             override fun surfaceChanged(holder: SurfaceHolder, fmt: Int, w: Int, h: Int) {
-                onSurfaceAvailable(holder.surface)
+                available.value(holder.surface)
             }
             override fun surfaceDestroyed(holder: SurfaceHolder) {
-                onSurfaceDestroyed(holder.surface)
+                destroyed.value(holder.surface)
             }
         }
     }
@@ -40,6 +43,7 @@ fun VideoSurfaceView(
                 it.holder.addCallback(callbacks)
             }
         },
+        update = { view -> if(view.holder.surface.isValid) available.value(view.holder.surface) },
         modifier = if (applyAspectRatio) {
             modifier
                 .aspectRatio(aspectRatio, matchHeightConstraintsFirst = aspectRatio < 1f)
