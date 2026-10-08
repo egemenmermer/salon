@@ -38,6 +38,8 @@ class AirPlayVideoPlayer(private val context: Context) {
     var onVideoSize: ((width: Int, height: Int, aspect: Float) -> Unit)? = null
     var onTitle: ((String?) -> Unit)? = null
     var onEnded: (() -> Unit)? = null
+    var onFirstFrame: (() -> Unit)? = null
+    var onFailure: (() -> Unit)? = null
 
     private val _reportTick = object : Runnable {
         override fun run() {
@@ -47,9 +49,10 @@ class AirPlayVideoPlayer(private val context: Context) {
     }
 
     private val _listener = object : Player.Listener {
+        override fun onRenderedFirstFrame() { onFirstFrame?.invoke() }
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
             Log.w(TAG, "playback error", error)
-            onEnded?.invoke()
+            onFailure?.invoke()
         }
         override fun onPlaybackStateChanged(state: Int) {
             if (state == Player.STATE_ENDED) onEnded?.invoke()

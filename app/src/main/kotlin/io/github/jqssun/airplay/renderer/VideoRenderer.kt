@@ -11,7 +11,13 @@ import io.github.jqssun.airplay.renderer.DecoderSelector.Companion.videoCaps
 class VideoRenderer(ctx: Context) {
 
     private val lock = Object()
-    private val pipeline = VideoPipeline()
+    var onFirstFrame: (() -> Unit)? = null
+    var onFailure: ((String) -> Unit)? = null
+    @Volatile private var firstRendered = false
+    private var decoderFailures = 0
+    private val pipeline = VideoPipeline().apply {
+        onFrameDrawn = { if (!firstRendered) { firstRendered = true; onFirstFrame?.invoke() } }
+    }
     val selector = DecoderSelector(ctx)
     private var avcDecoder: MediaCodecInfo? = null
     private var hevcDecoder: MediaCodecInfo? = null
@@ -73,17 +79,16 @@ class VideoRenderer(ctx: Context) {
         hevcDecoder != null
     }
 
-    // unknown limits default to 1080p
-    fun maxResolution(): Pair<Int, Int> =
-        listOfNotNull(avcDecoder?.let { it to DecoderSelector.AVC }, hevcDecoder?.let { it to DecoderSelector.HEVC })
-            .map { (info, mime) ->
-                runCatching { info.videoCaps(mime).let { it.supportedWidths.upper to it.supportedHeights.upper } }
-                    .getOrDefault(1920 to 1080)
-            }
-            .reduceOrNull { (w1, h1), (w2, h2) -> minOf(w1, w2) to minOf(h1, h2) } ?: (1920 to 1080)
+    // Advertise a size/rate combination supported by the selected H.264 decoder.
+    fun maxResolution(): Pair<Int, Int> {
+        val decoder = avcDecoder ?: return 1280 to 720
+        return listOf(1920 to 1080, 1280 to 720, 960 to 540, 640 to 360)
+            .firstOrNull { (w,h) -> selector.supportsRate(decoder, DecoderSelector.AVC, w, h, maxFps.coerceAtMost(30)) }
+            ?: (640 to 360)
+    }
 
     // codec per mirror session; pipeline persists across sessions
-    fun startSession() = synchronized(lock) { _resetStats() }
+    fun startSession() = synchronized(lock) { firstRendered = false; decoderFailures = 0; _resetStats() }
 
     fun stopSession() = synchronized(lock) { stopCodec() }
 
@@ -133,10 +138,13 @@ class VideoRenderer(ctx: Context) {
             }
 
             try {
+                if (decoderFailures >= 3) return
                 if (codec == null) startCodec(isH265)
                 _feedToCodec(data, ntpTimeNs)
                 drainOutput()
             } catch (e: Exception) {
+                decoderFailures++
+                if (decoderFailures >= 3) onFailure?.invoke("Video decoder could not start")
                 Log.w(TAG, "Codec error, resetting", e)
                 stopCodec()
             }
@@ -145,6 +153,7 @@ class VideoRenderer(ctx: Context) {
 
     private fun _feedToCodec(data: ByteArray, ntpTimeNs: Long) {
         val c = codec ?: return
+        if (data.size > 8 * 1024 * 1024) { onFailure?.invoke("Video packet exceeds limit"); return }
         // dropping a frame desyncs decoder until the next keyframe, but source would only send one on (re)connect
         val retries = if (firstFrameQueued) FEED_RETRIES else FIRST_FEED_RETRIES
         repeat(retries) {
@@ -189,13 +198,16 @@ class VideoRenderer(ctx: Context) {
         val s = pipeline.inputSurface ?: return
         currentH265 = h265
         val mime = if (h265) DecoderSelector.HEVC else DecoderSelector.AVC
-        val info = (if (h265) hevcDecoder else avcDecoder) ?: error("no decoder selected for $mime")
+        val info = (if (h265) hevcDecoder else avcDecoder)
+            ?: (if (videoWidth <= 1280 && videoHeight <= 1280) selector.software(mime, videoWidth, videoHeight) else null)
+            ?: error("no decoder selected for $mime")
 
         firstFrameQueued = false
         try {
             _startWithLadder(info, mime, s, h265)
         } catch (e: Exception) {
             // strict hw decoders reject configs beyond their real limits
+            if (videoWidth > 1280 || videoHeight > 1280) throw e
             val sw = selector.software(mime, videoWidth, videoHeight) ?: throw e
             Log.w(TAG, "Hardware decoder failed, trying software fallback", e)
             _startWithLadder(sw, mime, s, h265)

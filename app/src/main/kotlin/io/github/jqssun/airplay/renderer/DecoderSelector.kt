@@ -80,6 +80,9 @@ class DecoderSelector(private val ctx: Context) {
                 })
         }?.takeIf { _portraitSafe(w, h, it.videoCaps(mime)::isSizeSupported) }
 
+    fun supportsRate(info: MediaCodecInfo, mime: String, w: Int, h: Int, fps: Int): Boolean =
+        runCatching { _canMeet(info.videoCaps(mime), w, h, fps) }.getOrDefault(false)
+
     fun adaptive(info: MediaCodecInfo, mime: String) = !_inList(noAdaptive, info.name) &&
         runCatching { info.getCapabilitiesForType(mime).isFeatureSupported(CodecCapabilities.FEATURE_AdaptivePlayback) }
             .getOrDefault(false)

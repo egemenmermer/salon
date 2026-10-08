@@ -6,7 +6,7 @@ import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
 import android.util.Log
 
-class NsdServiceManager(private val ctx: Context) {
+class NsdServiceManager(private val ctx: Context, private val onRegistered: (String, String) -> Unit = { _, _ -> }, private val onFailure: (Int) -> Unit = {}) {
 
     private val nsdManager = ctx.getSystemService(Context.NSD_SERVICE) as NsdManager
     private var multicastLock: WifiManager.MulticastLock? = null
@@ -31,10 +31,11 @@ class NsdServiceManager(private val ctx: Context) {
 
         raopRegistration = object : NsdManager.RegistrationListener {
             override fun onServiceRegistered(info: NsdServiceInfo) {
-                Log.i(TAG, "RAOP registered: ${info.serviceName}")
+                if(raopRegistration !== this) return
+                onRegistered("raop",info.serviceName)
             }
             override fun onRegistrationFailed(info: NsdServiceInfo, code: Int) {
-                Log.e(TAG, "RAOP registration failed: $code")
+                if(raopRegistration === this) onFailure(code)
             }
             override fun onServiceUnregistered(info: NsdServiceInfo) {
                 Log.i(TAG, "RAOP unregistered")
@@ -56,10 +57,11 @@ class NsdServiceManager(private val ctx: Context) {
 
         airplayRegistration = object : NsdManager.RegistrationListener {
             override fun onServiceRegistered(info: NsdServiceInfo) {
-                Log.i(TAG, "AirPlay registered: ${info.serviceName}")
+                if(airplayRegistration !== this) return
+                onRegistered("airplay",info.serviceName)
             }
             override fun onRegistrationFailed(info: NsdServiceInfo, code: Int) {
-                Log.e(TAG, "AirPlay registration failed: $code")
+                if(airplayRegistration === this) onFailure(code)
             }
             override fun onServiceUnregistered(info: NsdServiceInfo) {
                 Log.i(TAG, "AirPlay unregistered")

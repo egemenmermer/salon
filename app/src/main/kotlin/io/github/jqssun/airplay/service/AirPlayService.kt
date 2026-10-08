@@ -1,15 +1,10 @@
 package io.github.jqssun.airplay.service
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
-import android.content.pm.ServiceInfo
 import android.content.res.Configuration
 import android.graphics.BitmapFactory
 import android.media.AudioManager
@@ -25,14 +20,13 @@ import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import android.util.Log
 import android.view.Surface
-import androidx.core.app.NotificationCompat
-import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
-import androidx.media.app.NotificationCompat as MediaNotificationCompat
-import io.github.jqssun.airplay.MainActivity
 import io.github.jqssun.airplay.Prefs
+import io.github.jqssun.airplay.ReceiverStateMachine
+import io.github.jqssun.airplay.SalonStage
+import io.github.jqssun.airplay.SalonState
 import io.github.jqssun.airplay.R
 import io.github.jqssun.airplay.realDisplaySize
 import io.github.jqssun.airplay.audio.DacpController
@@ -44,7 +38,6 @@ import io.github.jqssun.airplay.bridge.LogListener
 import io.github.jqssun.airplay.bridge.NativeBridge
 import io.github.jqssun.airplay.bridge.RaopCallbackHandler
 import io.github.jqssun.airplay.discovery.NsdServiceManager
-import io.github.jqssun.airplay.download.VideoDownloader
 import io.github.jqssun.airplay.renderer.AirPlayVideoPlayer
 import io.github.jqssun.airplay.renderer.AudioRenderer
 import io.github.jqssun.airplay.renderer.VideoRenderer
@@ -69,17 +62,142 @@ data class VideoPlaybackInfo(
 
 class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
 
+    private val salonMachine = ReceiverStateMachine()
+    private val _salonState = MutableStateFlow(SalonState())
+    val salonState = _salonState.asStateFlow()
+    private val _diagnostics = MutableStateFlow<List<String>>(emptyList())
+    val diagnostics = _diagnostics.asStateFlow()
+    private var uiVisible = false
+    private var selectedNetwork: android.net.Network? = null
+    private val connectivity by lazy { getSystemService(android.net.ConnectivityManager::class.java) }
+    private var networkRegistered = false
+    private var retryCount = 0
+    private var sessionTimeout: Runnable? = null
+    private var pendingSettings = false
+    private var focusHeld = false
+    private var focusRequest: android.media.AudioFocusRequest? = null
+    private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        _mainHandler.post {
+            when(change) {
+                AudioManager.AUDIOFOCUS_GAIN -> { if (_audioOnly.value || _mirroringActive.value) audioRenderer.start() }
+                AudioManager.AUDIOFOCUS_LOSS -> disconnectSession()
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT, AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> audioRenderer.stop()
+            }
+        }
+    }
+    private val networkCallback = object : android.net.ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: android.net.Network) { _mainHandler.post { refreshNetwork() } }
+        override fun onLost(network: android.net.Network) { _mainHandler.post { refreshNetwork() } }
+        override fun onCapabilitiesChanged(network: android.net.Network, caps: android.net.NetworkCapabilities) { _mainHandler.post { refreshNetwork() } }
+        override fun onLinkPropertiesChanged(network: android.net.Network, props: android.net.LinkProperties) { _mainHandler.post { refreshNetwork() } }
+    }
+    private fun publishSalon() { _salonState.value = salonMachine.state }
+    private fun salonEvent(stage: SalonStage, pin: String? = null, detail: String = "") {
+        salonMachine.event(salonMachine.generation, stage, pin, detail); publishSalon()
+    }
+    private fun networkChoice(): android.net.Network? = connectivity.allNetworks.filter { net ->
+        val caps = connectivity.getNetworkCapabilities(net) ?: return@filter false
+        val links = connectivity.getLinkProperties(net) ?: return@filter false
+        !caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) &&
+            (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) || caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET)) &&
+            links.linkAddresses.any { !it.address.isLoopbackAddress && !it.address.isAnyLocalAddress && !it.address.isLinkLocalAddress }
+    }.sortedBy { if(connectivity.getNetworkCapabilities(it)?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET)==true) 0 else 1 }.firstOrNull()
+
+    fun setUiVisible(visible: Boolean) {
+        uiVisible = visible
+        if (!visible) { stopServer(); return }
+        if (!networkRegistered) {
+            val request = android.net.NetworkRequest.Builder()
+                .addTransportType(android.net.NetworkCapabilities.TRANSPORT_WIFI)
+                .addTransportType(android.net.NetworkCapabilities.TRANSPORT_ETHERNET)
+                .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build()
+            try { connectivity.registerNetworkCallback(request, networkCallback); networkRegistered = true }
+            catch (e: SecurityException) { salonMachine.failed(salonMachine.generation, "Network access denied", true); publishSalon(); return }
+        }
+        refreshNetwork()
+    }
+    private fun refreshNetwork() {
+        if (!uiVisible) return
+        val choice = networkChoice()
+        if(choice != selectedNetwork) {
+            stopServer(); selectedNetwork = choice
+            connectivity.bindProcessToNetwork(choice)
+            retryCount = 0
+        }
+        if (choice == null) { salonMachine.stop(true); publishSalon(); return }
+        if(nativeHandle == 0L && _salonState.value.stage !in listOf(SalonStage.START_ERROR,SalonStage.PERMISSION)) retry()
+    }
+    fun retry() {
+        if(!uiVisible) return
+        val choice = networkChoice()
+        if(choice == null) { stopServer(); salonMachine.stop(true); publishSalon(); return }
+        selectedNetwork = choice; connectivity.bindProcessToNetwork(choice)
+        stopServer()
+        try { startServer(prefs.getString(Prefs.SERVER_NAME,Prefs.DEF_SERVER_NAME) ?: Prefs.DEF_SERVER_NAME) }
+        catch(e: Exception) {
+            _failStart()
+            salonMachine.failed(salonMachine.generation, e.javaClass.simpleName, e is SecurityException); publishSalon()
+        }
+    }
+    fun applySettings() {
+        if(_salonState.value.stage in listOf(SalonStage.VIDEO,SalonStage.AUDIO,SalonStage.PIN,SalonStage.CONNECTING)) {
+            pendingSettings = true
+            return
+        }
+        pendingSettings = false
+        retry()
+    }
+    fun disconnectSession() { retry() }
+    fun clearDiagnostics() { _diagnostics.value = emptyList() }
+    private fun recordDiagnostic(msg: String) {
+        // Do not retain URLs (including tokenized paths), pairing data, or identifiers.
+        if(Regex("(?i)pin|password|secret|token|pair|device|dacp|https?://").containsMatchIn(msg)) return
+        _diagnostics.value = (_diagnostics.value + msg.take(400)).takeLast(128)
+    }
+    private fun timeoutSession(delayMs: Long) {
+        sessionTimeout?.let { _mainHandler.removeCallbacks(it) }
+        val token = salonMachine.generation
+        sessionTimeout = Runnable {
+            if (token != salonMachine.generation) return@Runnable
+            if (salonMachine.timedOut(token)) {
+                retry()
+                salonEvent(SalonStage.VIDEO_ERROR, detail="Connection timed out")
+            }
+        }.also { _mainHandler.postDelayed(it, delayMs) }
+    }
+    private fun acquireAudioFocus(): Boolean {
+        if(focusHeld) return true
+        val result = if(Build.VERSION.SDK_INT >= 26) {
+            val request = android.media.AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MOVIE).build())
+                .setOnAudioFocusChangeListener(focusListener,_mainHandler).build()
+            focusRequest = request; audioManager.requestAudioFocus(request)
+        } else { @Suppress("DEPRECATION") audioManager.requestAudioFocus(focusListener,AudioManager.STREAM_MUSIC,AudioManager.AUDIOFOCUS_GAIN) }
+        focusHeld = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        return focusHeld
+    }
+    private fun releaseAudioFocus() {
+        if(Build.VERSION.SDK_INT >= 26) focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+        else { @Suppress("DEPRECATION") audioManager.abandonAudioFocus(focusListener) }
+        focusRequest = null; focusHeld = false
+    }
+    override fun onHandshake() {
+        if (_salonState.value.stage == SalonStage.READY) { salonEvent(SalonStage.CONNECTING); timeoutSession(30000) }
+    }
+    override fun onAuthenticated() {
+        clearPin(); salonEvent(SalonStage.CONNECTING); timeoutSession(15000)
+    }
+
     private var nativeHandle = 0L
     private var nsdManager: NsdServiceManager? = null
     private var wakeLock: PowerManager.WakeLock? = null
-    private var foregroundStarted = false
     private var lastOrientation = Configuration.ORIENTATION_UNDEFINED
 
     val videoRenderer = VideoRenderer(this)
     val audioRenderer = AudioRenderer()
     private val audioManager by lazy { getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val airPlayVideoPlayer by lazy { AirPlayVideoPlayer(this) }
-    val videoDownloader by lazy { VideoDownloader(this) }
 
     // hls urls point at the native httpd, valid only while the session lives
     private val _videoLocation = MutableStateFlow<String?>(null)
@@ -187,12 +305,11 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         }
 
     private fun log(msg: String) {
-        Log.i(TAG, msg)
-        logCallback?.invoke(msg)
+        recordDiagnostic(msg)
     }
 
     override fun onLog(msg: String) {
-        logCallback?.invoke(msg)
+        recordDiagnostic(msg)
     }
 
     inner class LocalBinder : Binder() {
@@ -207,7 +324,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
+        // Bound to the visible Activity; no foreground service or notification permission.
         dacpController = DacpController(this)
         dacpPlayer = DacpPlayer(
             mainLooper,
@@ -278,28 +395,6 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         }
         ContextCompat.registerReceiver(this, mediaReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
 
-        volumeReceiver = object : BroadcastReceiver() {
-            override fun onReceive(ctx: Context, intent: Intent) {
-                if (intent.getIntExtra(VolumeBroadcast.EXTRA_STREAM_TYPE, -1) != AudioManager.STREAM_MUSIC) return
-                val idx = intent.getIntExtra(VolumeBroadcast.EXTRA_VALUE, -1)
-                val prev = intent.getIntExtra(VolumeBroadcast.EXTRA_PREV_VALUE, -1)
-                if (idx < 0 || prev < 0 || idx == prev) return
-                if (_pendingVolEchoes > 0) { _pendingVolEchoes--; return }
-                if (_connectionCount.value == 0) return
-                val target = idx.toFloat() / audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                Log.d(TAG, "local volume $prev -> $idx, sync sender to $target")
-                _preZeroIdx = -1
-                val active = _volSyncTarget >= 0f
-                _volSyncTarget = target
-                _volSyncHint = if (idx > prev) 1 else -1
-                _volSyncDir = 0
-                _volSyncSteps = 0
-                if (!active) _volSyncStep()
-            }
-        }
-        ContextCompat.registerReceiver(this, volumeReceiver, IntentFilter(VolumeBroadcast.ACTION),
-            ContextCompat.RECEIVER_NOT_EXPORTED)
-
         airPlayVideoPlayer.onVideoSize = { width, height, aspect ->
             _videoPlaybackAspect.value = aspect
             _videoPlaybackSize.value = width to height
@@ -329,28 +424,65 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_START_SERVER) {
-            promoteToForeground()
-            val name = prefs.getString(Prefs.SERVER_NAME, Prefs.DEF_SERVER_NAME) ?: Prefs.DEF_SERVER_NAME
-            startServer(name, ensureServiceStarted = false)
-            if (_serverState.value != ServerState.RUNNING) stopSelf(startId)
-        }
-        return START_NOT_STICKY
+    private fun guardedCallbacks(token: Long): RaopCallbackHandler = object : RaopCallbackHandler, LogListener {
+        override fun onLog(msg: String) { _mainHandler.post { if(token == salonMachine.generation) recordDiagnostic(msg) } }
+        override fun onHandshake() { _mainHandler.post { if(token == salonMachine.generation) this@AirPlayService.onHandshake() } }
+        override fun onAuthenticated() { _mainHandler.post { if(token == salonMachine.generation) this@AirPlayService.onAuthenticated() } }
+        override fun onVideoData(data: ByteArray, ntpTimeNs: Long, isH265: Boolean) { if(token == salonMachine.generation) this@AirPlayService.onVideoData(data, ntpTimeNs, isH265) }
+        override fun onAudioFormat(ct: Int, spf: Int, usingScreen: Boolean) { _mainHandler.post { if(token == salonMachine.generation) this@AirPlayService.onAudioFormat(ct, spf, usingScreen) } }
+        override fun onVideoSize(srcW: Float, srcH: Float, w: Float, h: Float) { _mainHandler.post { if(token == salonMachine.generation) this@AirPlayService.onVideoSize(srcW, srcH, w, h) } }
+        override fun onVolumeChange(volume: Float) {
+        // Sender volume is ignored in Salon v1; the TV remote owns system volume.
+    }
+
+    override fun onClientVolume(): Float = if(token == salonMachine.generation) this@AirPlayService.onClientVolume() else -144f
+        override fun onAudioTeardown() { _mainHandler.post { if(token == salonMachine.generation) this@AirPlayService.onAudioTeardown() } }
+        override fun onConnectionInit() { _mainHandler.post { if(token == salonMachine.generation) this@AirPlayService.onConnectionInit() } }
+        override fun onConnectionDestroy() { _mainHandler.post { if(token == salonMachine.generation) this@AirPlayService.onConnectionDestroy() } }
+        override fun onConnectionReset(reason: Int) { _mainHandler.post { if(token == salonMachine.generation) this@AirPlayService.onConnectionReset(reason) } }
+        override fun onDisplayPin(pin: String) { _mainHandler.post { if(token == salonMachine.generation) this@AirPlayService.onDisplayPin(pin) } }
+        override fun onMetadata(data: ByteArray) { _mainHandler.post { if(token == salonMachine.generation) this@AirPlayService.onMetadata(data) } }
+        override fun onCoverArt(data: ByteArray) { _mainHandler.post { if(token == salonMachine.generation) this@AirPlayService.onCoverArt(data) } }
+        override fun onProgress(start: Long, curr: Long, end: Long) { _mainHandler.post { if(token == salonMachine.generation) this@AirPlayService.onProgress(start, curr, end) } }
+        override fun onDacpId(dacpId: String, activeRemote: String) { _mainHandler.post { if(token == salonMachine.generation) this@AirPlayService.onDacpId(dacpId, activeRemote) } }
+        override fun onMirrorRunning(running: Boolean) { _mainHandler.post { if(token == salonMachine.generation) this@AirPlayService.onMirrorRunning(running) } }
+        override fun onVideoPlay(location: String, startPositionSeconds: Float) { _mainHandler.post { if(token == salonMachine.generation) this@AirPlayService.onVideoPlay(location, startPositionSeconds) } }
+        override fun onVideoScrub(positionSeconds: Float) { _mainHandler.post { if(token == salonMachine.generation) this@AirPlayService.onVideoScrub(positionSeconds) } }
+        override fun onVideoRate(rate: Float) { _mainHandler.post { if(token == salonMachine.generation) this@AirPlayService.onVideoRate(rate) } }
+        override fun onVideoStop() { _mainHandler.post { if(token == salonMachine.generation) this@AirPlayService.onVideoStop() } }
+        override fun onVideoSessionPoll() { _mainHandler.post { if(token == salonMachine.generation) this@AirPlayService.onVideoSessionPoll() } }
     }
 
     fun startServer(name: String) {
-        startServer(name, ensureServiceStarted = true)
-    }
-
-    private fun startServer(name: String, ensureServiceStarted: Boolean) {
-        if (_serverState.value == ServerState.RUNNING) return
+        if (nativeHandle != 0L || !uiVisible) return
+        pendingSettings = false
+        val token = salonMachine.begin(name); publishSalon()
+        videoRenderer.onFirstFrame = { _mainHandler.post {
+            if (token == salonMachine.generation) { salonEvent(SalonStage.VIDEO); sessionTimeout?.let { _mainHandler.removeCallbacks(it) } }
+        } }
+        videoRenderer.onFailure = { detail -> _mainHandler.post {
+            if (token == salonMachine.generation) salonEvent(SalonStage.VIDEO_ERROR, detail=detail)
+        } }
+        airPlayVideoPlayer.onFirstFrame = { if (token == salonMachine.generation) salonEvent(SalonStage.VIDEO) }
+        airPlayVideoPlayer.onFailure = { if (token == salonMachine.generation) salonEvent(SalonStage.VIDEO_ERROR) }
         val effectiveName = name.ifBlank { Prefs.DEF_SERVER_NAME }
 
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "airplay:server").apply { acquire() }
 
-        nsdManager = NsdServiceManager(this).apply { acquireMulticastLock() }
+        nsdManager = NsdServiceManager(this,
+            onRegistered = { kind, actualName -> _mainHandler.post {
+                salonMachine.registered(token,kind,actualName)
+                if(_salonState.value.stage == SalonStage.PREPARING && salonMachine.state.stage == SalonStage.READY) {
+                    _serverState.value = ServerState.RUNNING; retryCount=0
+                }
+                publishSalon()
+            } },
+            onFailure = { code -> _mainHandler.post {
+                if(token == salonMachine.generation) {
+                    _failStart(); salonMachine.failed(salonMachine.generation,"Service announcement failed ($code)"); publishSalon()
+                }
+            } }).apply { if(selectedNetwork?.let { connectivity.getNetworkCapabilities(it)?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) } == true) acquireMulticastLock() }
 
         val hwAddr = getHwAddr()
         val keyFile = filesDir.resolve("airplay.pem").absolutePath
@@ -365,7 +497,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
             audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)?.toIntOrNull() ?: 0,
             audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER)?.toIntOrNull() ?: 0
         )
-        nativeHandle = NativeBridge.nativeInit(this, hwAddr, effectiveName, keyFile, nohold, requirePin)
+        nativeHandle = NativeBridge.nativeInit(guardedCallbacks(token), hwAddr, effectiveName, keyFile, nohold, requirePin)
         if (nativeHandle == 0L) {
             log("Native init failed")
             _failStart()
@@ -430,11 +562,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         }
         nsdManager?.registerAirplay(resolvedName, port, airplayTxt)
 
-        _serverState.value = ServerState.RUNNING
-        if (ensureServiceStarted) {
-            ContextCompat.startForegroundService(this, Intent(this, AirPlayService::class.java))
-        }
-        promoteToForeground()
+        salonMachine.listening(token); publishSalon()
         log("Server started on port $port")
     }
 
@@ -472,6 +600,8 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
     }
 
     private fun _failStart() {
+        salonMachine.stop()
+        salonMachine.failed(salonMachine.generation,"Receiver startup failed"); publishSalon()
         audioRenderer.detachEngine()
         if (nativeHandle != 0L) {
             NativeBridge.nativeDestroy(nativeHandle)
@@ -482,13 +612,13 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         wakeLock?.release()
         wakeLock = null
         _serverState.value = ServerState.ERROR
-        if (foregroundStarted) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            foregroundStarted = false
-        }
     }
 
     fun stopServer() {
+        salonMachine.stop(); publishSalon()
+        sessionTimeout?.let { _mainHandler.removeCallbacks(it) }; sessionTimeout=null
+        clearPin(); releaseAudioFocus()
+        audioRenderer.stop()
         audioRenderer.detachEngine()
         if (nativeHandle != 0L) {
             NativeBridge.nativeStop(nativeHandle)
@@ -516,9 +646,6 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         _serverState.value = ServerState.STOPPED
         _connectionCount.value = 0
         _refreshDacpPlayer()
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        foregroundStarted = false
-        stopSelf()
         log("Server stopped")
     }
 
@@ -564,22 +691,21 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
 
     fun stopVideoPlayback() = _endVideoPlayback("AirPlay Video stopped (local)")
 
-    fun downloadVideo() {
-        _videoLocation.value?.let { videoDownloader.start(it) }
-    }
-
     private fun _endVideoPlayback(message: String) {
         if (!_videoPlaybackActive.value) return
         // lingering polls after a stop must not bounce the UI back to a pending session
         _videoPollSuppressed = true
         _videoPlaybackActive.value = false
         airPlayVideoPlayer.stop()
+        if(_salonState.value.stage != SalonStage.VIDEO_ERROR) { salonMachine.ended(salonMachine.generation); publishSalon() }
         if (!_audioOnly.value) mediaSession?.isActive = false
         log(message)
     }
 
     override fun onDestroy() {
-        stopServer()
+        uiVisible = false; stopServer()
+        if(networkRegistered) { connectivity.unregisterNetworkCallback(networkCallback); networkRegistered=false }
+        connectivity.bindProcessToNetwork(null)
         dacpPlayer.release()
         mediaReceiver?.let {
             try { unregisterReceiver(it) } catch (_: Exception) {}
@@ -614,11 +740,13 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         _videoPlaybackAspect.value = 16f / 9f
         _videoPlaybackSize.value = null
         _videoTitle.value = ""
+        salonEvent(SalonStage.CONNECTING); timeoutSession(15000)
+        acquireAudioFocus()
         _videoPlaybackActive.value = true
         airPlayVideoPlayer.play(location, startPositionSeconds)
         // claim media-button routing for keys that arrive as media-session events
         mediaSession?.isActive = true
-        log("AirPlay Video play: $location @ ${startPositionSeconds}s")
+        log("Direct video playback requested")
     }
 
     override fun onVideoScrub(positionSeconds: Float) {
@@ -633,12 +761,14 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
 
     override fun onAudioFormat(ct: Int, spf: Int, usingScreen: Boolean) {
         clearPin()
-        audioRenderer.start()
+        if (!acquireAudioFocus() || !audioRenderer.start()) { salonEvent(SalonStage.VIDEO_ERROR, detail="Audio output unavailable"); return }
         audioRenderer.setFormat(ct, spf)
         if (!usingScreen) _setPlaying(true)
         if (!usingScreen && !_audioOnly.value) {
             // pure music streaming (not screen mirroring audio)
             _setAudioOnly(true)
+            salonEvent(SalonStage.AUDIO)
+            sessionTimeout?.let { _mainHandler.removeCallbacks(it) }
         }
         log("Audio format: ct=$ct spf=$spf screen=$usingScreen")
     }
@@ -711,20 +841,16 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
     }
 
     override fun onConnectionInit() {
-        val firstConnection = _connectionCount.value == 0
+        // Count protocol channels only for resource cleanup, never as sender devices.
         _connectionCount.value++
         log("Client connected (${_connectionCount.value})")
-        if (!firstConnection) return
-        // conn_init is only a tcp pre-auth signal. pin-required sessions must wait for
-        // onDisplayPin, otherwise the server ui can move before the client pin is current
-        if (requiresPin()) return
-        if (!shouldLaunchOnConnect()) return
-        launchMainActivity()
     }
 
     override fun onConnectionDestroy() {
         _connectionCount.value = (_connectionCount.value - 1).coerceAtLeast(0)
         if (_connectionCount.value == 0) {
+            clearPin(); videoRenderer.stopSession(); _mirroringActive.value = false; releaseAudioFocus()
+            salonMachine.ended(salonMachine.generation); publishSalon()
             // clients may drop without POST /stop; must run before the poll-state reset
             _endVideoPlayback("AirPlay Video stopped (disconnect)")
             // last client gone: release audio output devices to save power
@@ -747,7 +873,15 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
             }
             mediaSession?.isActive = false
             _refreshDacpPlayer()
-            _updateMediaNotification()
+            if (pendingSettings) {
+                val token = salonMachine.generation
+                _mainHandler.post {
+                    if (token == salonMachine.generation && _connectionCount.value == 0 && uiVisible) {
+                        pendingSettings = false
+                        retry()
+                    }
+                }
+            }
         }
         log("Client disconnected (${_connectionCount.value})")
     }
@@ -759,9 +893,9 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
     override fun onDisplayPin(pin: String) {
         // a new pin is the sync point with the client prompt: show every new value immediately
         if (_lastPin == pin) return
+        salonEvent(SalonStage.PIN, pin); timeoutSession(90000)
         _lastPin = pin
         pinCallback?.invoke(pin)
-        _updateMediaNotification()
     }
 
     override fun onMetadata(data: ByteArray) {
@@ -771,7 +905,7 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         if (info.durationMs > 0) _durationMs.value = info.durationMs
         _updateMediaMetadata()
         _refreshDacpPlayer()
-        log("Track: ${info.artist} - ${info.title}")
+        log("Audio metadata updated")
     }
 
     override fun onCoverArt(data: ByteArray) {
@@ -811,7 +945,8 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
             videoRenderer.stopSession()
             _mirroringActive.value = false
         }
-        _setAudioOnly(!running)
+        if(running) _setAudioOnly(false)
+        else if(_salonState.value.stage == SalonStage.VIDEO) { salonMachine.ended(salonMachine.generation); publishSalon() }
     }
 
     private fun _setAudioOnly(audioOnly: Boolean) {
@@ -827,7 +962,6 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
             _trackInfo.value = TrackInfo()
             _positionMs.value = 0
             _durationMs.value = 0
-            _updateMediaNotification()
             log("Mirror mode")
         }
     }
@@ -841,7 +975,6 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
             .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, _durationMs.value)
         info.coverArt?.let { builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, it) }
         mediaSession?.setMetadata(builder.build())
-        _updateMediaNotification()
     }
 
     fun togglePlayPause() {
@@ -882,7 +1015,6 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
             .setState(pbState, _positionMs.value, speed, SystemClock.elapsedRealtime())
             .build()
         mediaSession?.setPlaybackState(state)
-        _updateMediaNotification()
     }
 
     // consumers extrapolate position from (position, speed, updateTime): push only discontinuities
@@ -927,7 +1059,6 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
     private fun clearPin() {
         _lastPin = null
         pinCallback?.invoke(null)
-        _updateMediaNotification()
     }
 
     fun collectDebugInfo() = DebugInfo(
@@ -999,104 +1130,6 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         } catch (e: Exception) { null }
     }
 
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            getString(R.string.notification_channel),
-            NotificationManager.IMPORTANCE_LOW
-        )
-        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
-    }
-
-    private fun buildNotification(): Notification {
-        return _buildMediaNotification()
-    }
-
-    private fun promoteToForeground() {
-        ServiceCompat.startForeground(
-            this,
-            NOTIFICATION_ID,
-            buildNotification(),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-        )
-        foregroundStarted = true
-    }
-
-    private fun requiresPin(): Boolean {
-        return prefs.getBoolean(Prefs.REQUIRE_PIN, Prefs.DEF_REQUIRE_PIN)
-    }
-
-    private fun shouldLaunchOnConnect(): Boolean {
-        return prefs.getBoolean(Prefs.LAUNCH_ON_CONNECT, Prefs.DEF_LAUNCH_ON_CONNECT)
-    }
-
-    private fun _buildMediaNotification(): Notification {
-        val intent = Intent(this, MainActivity::class.java)
-        val pi = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
-        val info = _trackInfo.value
-        val isAudio = _audioOnly.value && info.title.isNotEmpty()
-
-        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentIntent(pi)
-            .setOngoing(true)
-
-        if (isAudio) {
-            builder.setContentTitle(info.title).setContentText(info.artist).setSubText(info.album)
-            info.coverArt?.let { builder.setLargeIcon(it) }
-            mediaSession?.sessionToken?.let { token ->
-                builder.setStyle(
-                    MediaNotificationCompat.MediaStyle()
-                        .setMediaSession(token)
-                        .setShowActionsInCompactView(0, 1, 2)
-                )
-                // transport action buttons
-                builder.addAction(android.R.drawable.ic_media_previous, "Prev", _mediaAction(ACTION_PREV))
-                builder.addAction(android.R.drawable.ic_media_pause, "Pause", _mediaAction(ACTION_PLAY_PAUSE))
-                builder.addAction(android.R.drawable.ic_media_next, "Next", _mediaAction(ACTION_NEXT))
-            }
-        } else {
-            if (_lastPin != null) {
-                // passive handoff only: do not launch/reorder the activity during pin auth
-                builder.setContentTitle(getString(R.string.notification_pin_title))
-                    .setContentText(getString(R.string.notification_pin_text, _lastPin))
-            } else {
-                builder.setContentTitle(getString(R.string.notification_title))
-                    .setContentText(getString(R.string.notification_text))
-            }
-        }
-        return builder.build()
-    }
-
-    private fun launchMainActivity() {
-        Handler(Looper.getMainLooper()).post {
-            val launchIntent = Intent(this, MainActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-            try {
-                startActivity(launchIntent)
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to launch activity", e)
-            }
-        }
-    }
-
-    private fun _mediaAction(action: String): PendingIntent {
-        val intent = Intent(action).setPackage(packageName)
-        return PendingIntent.getBroadcast(
-            this,
-            action.hashCode(),
-            intent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-    }
-
-    private fun _updateMediaNotification() {
-        if (_serverState.value != ServerState.RUNNING) return
-        val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        nm.notify(NOTIFICATION_ID, _buildMediaNotification())
-    }
-
     enum class ServerState {
         STOPPED,
         RUNNING,
@@ -1108,8 +1141,6 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         private const val VOL_SYNC_EPS = 0.033f
         private const val VOL_SYNC_MAX_STEPS = 32
         private const val VOL_SYNC_TIMEOUT_MS = 800L
-        private const val CHANNEL_ID = "airplay_service"
-        private const val NOTIFICATION_ID = 1
         const val ACTION_PLAY_PAUSE = "io.github.jqssun.airplay.PLAY_PAUSE"
         const val ACTION_NEXT = "io.github.jqssun.airplay.NEXT"
         const val ACTION_PREV = "io.github.jqssun.airplay.PREV"

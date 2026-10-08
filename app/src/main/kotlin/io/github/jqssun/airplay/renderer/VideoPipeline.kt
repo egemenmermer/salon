@@ -16,6 +16,7 @@ import java.nio.FloatBuffer
 // gl thread blits it to any surface attached, so fullscreen toggles re-point display without restarting codec
 class VideoPipeline {
 
+    var onFrameDrawn: (() -> Unit)? = null
     private val lock = Object()
     private var thread: Thread? = null
     @Volatile private var running = false
@@ -45,6 +46,8 @@ class VideoPipeline {
     fun start() = synchronized(lock) {
         if (running) return@synchronized
         running = true
+        hasFrame = false
+        displayDirty = true
         thread = Thread({ _loop() }, "VideoPipeline").also { it.start() }
         while (inputSurface == null && running) lock.wait()
     }
@@ -159,7 +162,7 @@ class VideoPipeline {
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         GLES20.glDisableVertexAttribArray(aPos)
         GLES20.glDisableVertexAttribArray(aTex)
-        egl?.swap(window)
+        if (egl?.swap(window) == true) onFrameDrawn?.invoke()
     }
 
     private fun _initGl() {
