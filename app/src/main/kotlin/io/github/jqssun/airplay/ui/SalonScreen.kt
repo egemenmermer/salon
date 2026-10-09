@@ -1,5 +1,8 @@
 package io.github.jqssun.airplay.ui
 
+import io.github.jqssun.airplay.VideoQuality
+import io.github.jqssun.airplay.VideoQualityMode
+
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
@@ -49,6 +52,7 @@ private fun SalonButton(text: String, modifier: Modifier = Modifier, onClick: ()
 @Composable
 fun SalonScreen(service: AirPlayService?, openSystemSettings: (Intent) -> Unit) {
     val state by (service?.salonState ?: remember { kotlinx.coroutines.flow.MutableStateFlow(SalonState()) }).collectAsState()
+    val mirrorResolution by (service?.videoResolution ?: remember { kotlinx.coroutines.flow.MutableStateFlow("") }).collectAsState()
     val mirrorAspect by (service?.videoAspect ?: remember { kotlinx.coroutines.flow.MutableStateFlow(16f/9f) }).collectAsState()
     val hlsAspect by (service?.videoPlaybackAspect ?: remember { kotlinx.coroutines.flow.MutableStateFlow(16f/9f) }).collectAsState()
     val hls by (service?.videoPlaybackActive ?: remember { kotlinx.coroutines.flow.MutableStateFlow(false) }).collectAsState()
@@ -61,7 +65,7 @@ fun SalonScreen(service: AirPlayService?, openSystemSettings: (Intent) -> Unit) 
     var interaction by remember { mutableLongStateOf(0) }
     var name by remember { mutableStateOf(prefs.getString(Prefs.SERVER_NAME, Prefs.DEF_SERVER_NAME)!!) }
     var pinEnabled by remember { mutableStateOf(prefs.getBoolean(Prefs.REQUIRE_PIN, true)) }
-    var compatible by remember { mutableStateOf(prefs.getString(Prefs.RESOLUTION, "1920x1080") == "1280x720") }
+    var quality by remember { mutableStateOf(VideoQualityMode.stored(prefs.getString(VideoQuality.PREF,null),prefs.getString(Prefs.RESOLUTION,Prefs.DEF_RESOLUTION))) }
     var nameInvalid by remember { mutableStateOf(false) }
     var deferred by remember { mutableStateOf(false) }
     val first = remember { FocusRequester() }
@@ -84,7 +88,9 @@ fun SalonScreen(service: AirPlayService?, openSystemSettings: (Intent) -> Unit) 
         nameInvalid = !SalonSettings.validName(name)
         if (nameInvalid) return
         prefs.edit().putString(Prefs.SERVER_NAME,name.trim()).putBoolean(Prefs.REQUIRE_PIN,pinEnabled)
-            .putString(Prefs.RESOLUTION,if(compatible) "1280x720" else "1920x1080").apply()
+            .putString(VideoQuality.PREF,quality.name)
+            .putString(Prefs.RESOLUTION,when(quality) { VideoQualityMode.UHD -> "3840x2160"; VideoQualityMode.COMPATIBLE -> "1280x720"; else -> "1920x1080" })
+            .putInt(Prefs.MAX_FPS,if(quality == VideoQualityMode.SMOOTH) 60 else 30).apply()
         deferred = state.stage in listOf(SalonStage.VIDEO, SalonStage.AUDIO, SalonStage.PIN, SalonStage.CONNECTING)
         service?.applySettings()
     }
@@ -102,6 +108,7 @@ fun SalonScreen(service: AirPlayService?, openSystemSettings: (Intent) -> Unit) 
             VideoSurfaceView(
                 onSurfaceAvailable = { if(hls) service?.setVideoPlaybackSurface(it) else service?.setVideoSurface(it) },
                 onSurfaceDestroyed = { service?.clearVideoSurface(it); service?.clearVideoPlaybackSurface(it) },
+                bufferSize = if(hls) null else VideoQuality.surfaceSize(mirrorResolution),
                 applyAspectRatio = false, modifier = Modifier.width(width).height(height))
         }
         if (playing && !panel) Box(Modifier.fillMaxSize().focusRequester(videoFocus).focusable())
@@ -117,7 +124,14 @@ fun SalonScreen(service: AirPlayService?, openSystemSettings: (Intent) -> Unit) 
                         if(nameInvalid) Text(stringResource(R.string.salon_invalid_name),color=Color(0xFFE8B4AD))
                         SalonButton(stringResource(if(pinEnabled) R.string.salon_pin_on else R.string.salon_pin_off)) { pinEnabled=!pinEnabled }
                         if(!pinEnabled) Text(stringResource(R.string.salon_open_access),textAlign=TextAlign.Center)
-                        SalonButton(stringResource(if(compatible) R.string.salon_compatible else R.string.salon_auto)) { compatible=!compatible }
+                        val qualityLabel = when(quality) {
+                            VideoQualityMode.AUTOMATIC -> R.string.salon_auto
+                            VideoQualityMode.SMOOTH -> R.string.salon_smooth
+                            VideoQualityMode.UHD -> R.string.salon_uhd
+                            VideoQualityMode.COMPATIBLE -> R.string.salon_compatible
+                        }
+                        SalonButton(stringResource(qualityLabel)) { quality=VideoQualityMode.entries[(quality.ordinal+1)%VideoQualityMode.entries.size] }
+                        Text(stringResource(R.string.salon_quality_hint),fontSize=18.sp,textAlign=TextAlign.Center)
                         SalonButton(stringResource(R.string.salon_save)) { save() }
                         if(deferred) Text(stringResource(R.string.salon_deferred),textAlign=TextAlign.Center)
                         SalonButton(stringResource(R.string.salon_about_help)) { page="about" }

@@ -1,5 +1,8 @@
 package io.github.jqssun.airplay.service
 
+import io.github.jqssun.airplay.VideoQuality
+import io.github.jqssun.airplay.VideoQualityMode
+
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -506,11 +509,13 @@ class AirPlayService : LifecycleService(), RaopCallbackHandler, LogListener {
         audioRenderer.attachEngine(nativeHandle)
 
         // apply settings from preferences
-        val maxFps = prefs.getInt(Prefs.MAX_FPS, Prefs.DEF_MAX_FPS)
+        val mode = VideoQualityMode.stored(prefs.getString(VideoQuality.PREF,null), prefs.getString(Prefs.RESOLUTION,Prefs.DEF_RESOLUTION))
+        val profile = videoRenderer.selectQuality(mode)
+        if(profile == null) { _failStart(); return }
+        val maxFps = profile.fps
         val overscanned = prefs.getBoolean(Prefs.OVERSCANNED, Prefs.DEF_OVERSCANNED)
         val audioLatencyMs = prefs.getInt(Prefs.AUDIO_LATENCY_MS, Prefs.DEF_AUDIO_LATENCY_MS)
-        val (reqW, reqH) = _displaySize(clamp = false)
-        val h265 = videoRenderer.selectDecoders(reqW, reqH, maxFps, prefs.getBoolean(Prefs.H265_ENABLED, Prefs.DEF_H265_ENABLED))
+        val h265 = profile.hevc
         val alac = prefs.getBoolean(Prefs.ALAC_ENABLED, Prefs.DEF_ALAC_ENABLED)
         val aac = prefs.getBoolean(Prefs.AAC_ENABLED, Prefs.DEF_AAC_ENABLED)
 

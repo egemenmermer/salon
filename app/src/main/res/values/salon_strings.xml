@@ -50,5 +50,8 @@
     <string name="salon_mirroring">Ekran yansıtılıyor</string>
     <string name="salon_continue">Devam et</string>
     <string name="salon_licenses">Açık kaynak lisansları</string>
-    <string name="salon_version">Salon 1.0.0</string>
+    <string name="salon_version">Salon 1.0.1</string>
+    <string name="salon_smooth">Görüntü: Akıcı — 1080p / 60 FPS</string>
+    <string name="salon_uhd">Görüntü: 4K / 30 FPS (Deneysel)</string>
+    <string name="salon_quality_hint">TV desteklemiyorsa daha düşük kalite seçilir. Telefonun gönderdiği görüntü bu hedefin altında olabilir.</string>
 </resources>

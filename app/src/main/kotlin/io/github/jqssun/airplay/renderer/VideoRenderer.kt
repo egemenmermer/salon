@@ -1,5 +1,9 @@
 package io.github.jqssun.airplay.renderer
 
+import io.github.jqssun.airplay.VideoQuality
+import io.github.jqssun.airplay.VideoQualityMode
+import io.github.jqssun.airplay.VideoProfile
+
 import android.content.Context
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
@@ -71,21 +75,24 @@ class VideoRenderer(ctx: Context) {
         pipeline.setDisplaySurface(null)
     }
 
-    fun selectDecoders(w: Int, h: Int, fps: Int, h265: Boolean): Boolean = synchronized(lock) {
-        avcDecoder = selector.avc()
-        hevcDecoder = if (h265) selector.hevc(avcDecoder, w, h, fps) else null
-        maxFps = fps
-        Log.i(TAG, "decoders: avc=${avcDecoder?.name} hevc=${hevcDecoder?.name}")
-        hevcDecoder != null
+    private var activeProfile = VideoProfile(1280,720,30)
+    fun selectQuality(mode: VideoQualityMode): VideoProfile? = synchronized(lock) {
+        avcDecoder = selector.avcHardware(if(mode == VideoQualityMode.COMPATIBLE) 1280 else 1920,
+            if(mode == VideoQualityMode.COMPATIBLE) 720 else 1080,if(mode == VideoQualityMode.SMOOTH) 60 else 30)
+            ?: selector.avc() ?: selector.software(DecoderSelector.AVC,1280,720)
+        hevcDecoder = if (mode == VideoQualityMode.UHD) selector.hevcHardware(3840,2160,30) else null
+        val profile = VideoQuality.select(mode) { candidate ->
+            val decoder = if(candidate.hevc) hevcDecoder else avcDecoder
+            decoder != null && (selector.isHardwareDecoder(decoder) ||
+                (candidate.width<=1280 && candidate.height<=1280 && candidate.fps<=30)) && selector.supportsRate(decoder,
+                if(candidate.hevc) DecoderSelector.HEVC else DecoderSelector.AVC,
+                candidate.width,candidate.height,candidate.fps)
+        } ?: return@synchronized null
+        if(!profile.hevc) hevcDecoder = null
+        activeProfile = profile; maxFps = profile.fps
+        profile
     }
-
-    // Advertise a size/rate combination supported by the selected H.264 decoder.
-    fun maxResolution(): Pair<Int, Int> {
-        val decoder = avcDecoder ?: return 1280 to 720
-        return listOf(1920 to 1080, 1280 to 720, 960 to 540, 640 to 360)
-            .firstOrNull { (w,h) -> selector.supportsRate(decoder, DecoderSelector.AVC, w, h, maxFps.coerceAtMost(30)) }
-            ?: (640 to 360)
-    }
+    fun maxResolution(): Pair<Int, Int> = activeProfile.width to activeProfile.height
 
     // codec per mirror session; pipeline persists across sessions
     fun startSession() = synchronized(lock) { firstRendered = false; decoderFailures = 0; _resetStats() }

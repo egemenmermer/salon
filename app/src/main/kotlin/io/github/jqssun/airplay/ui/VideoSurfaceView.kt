@@ -17,6 +17,7 @@ fun VideoSurfaceView(
     onSurfaceAvailable: (Surface) -> Unit,
     onSurfaceDestroyed: (Surface) -> Unit,
     aspectRatio: Float = 16f / 9f,
+    bufferSize: Pair<Int,Int>? = null,
     // false = caller sizes the surface (content-scale modes)
     applyAspectRatio: Boolean = true,
     modifier: Modifier = Modifier
@@ -37,13 +38,21 @@ fun VideoSurfaceView(
         }
     }
 
+    val appliedBuffer = remember { arrayOfNulls<Pair<Int,Int>>(1) }
     AndroidView(
         factory = { ctx ->
             SurfaceView(ctx).also {
                 it.holder.addCallback(callbacks)
             }
         },
-        update = { view -> if(view.holder.surface.isValid) available.value(view.holder.surface) },
+        update = { view ->
+            if(appliedBuffer[0] != bufferSize) {
+                if(bufferSize == null) view.holder.setSizeFromLayout()
+                else view.holder.setFixedSize(bufferSize.first,bufferSize.second)
+                appliedBuffer[0] = bufferSize
+            }
+            if(view.holder.surface.isValid) available.value(view.holder.surface)
+        },
         modifier = if (applyAspectRatio) {
             modifier
                 .aspectRatio(aspectRatio, matchHeightConstraintsFirst = aspectRatio < 1f)

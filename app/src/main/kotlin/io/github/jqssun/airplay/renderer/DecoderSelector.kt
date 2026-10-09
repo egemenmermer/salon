@@ -70,6 +70,18 @@ class DecoderSelector(private val ctx: Context) {
         return info.takeIf { !_canMeet(avcCaps, w, h, fps) && _canMeet(info.videoCaps(HEVC), w, h, fps) }
     }
 
+    fun isHardwareDecoder(info: MediaCodecInfo): Boolean =
+        if (Build.VERSION.SDK_INT >= 29) info.isHardwareAccelerated && !info.isSoftwareOnly
+        else info.name.lowercase().let { (it.startsWith("omx.") || it.startsWith("c2.")) &&
+            !it.startsWith("omx.google.") && !it.startsWith("c2.android.") }
+
+    private fun hardware(mime: String, w: Int, h: Int, fps: Int): MediaCodecInfo? =
+        _decoders(mime).firstOrNull { info ->
+            isHardwareDecoder(info) && supportsRate(info,mime,w,h,fps)
+        }
+    fun avcHardware(w: Int,h: Int,fps: Int) = hardware(AVC,w,h,fps)
+    fun hevcHardware(w: Int,h: Int,fps: Int) = hardware(HEVC,w,h,fps)
+
     fun software(mime: String, w: Int, h: Int): MediaCodecInfo? =
         MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos.firstOrNull { info ->
             !info.isEncoder && info.supportsMime(mime) &&
@@ -164,7 +176,7 @@ class DecoderSelector(private val ctx: Context) {
     private fun _canMeet(caps: VideoCapabilities, w: Int, h: Int, fps: Int): Boolean {
         if (Build.VERSION.SDK_INT >= 29) {
             val target = VideoCapabilities.PerformancePoint(w, h, fps)
-            caps.supportedPerformancePoints?.let { pts -> return pts.any { it.covers(target) } }
+            caps.supportedPerformancePoints?.takeIf { it.isNotEmpty() }?.let { pts -> return pts.any { it.covers(target) } }
         }
         return _portraitSafe(w, h) { cw, ch -> _rateSupported(caps, cw, ch, fps) }
     }

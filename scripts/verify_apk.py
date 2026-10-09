@@ -4,7 +4,7 @@ import hashlib,json,re,struct,subprocess,sys,zipfile
 apk,aapt=sys.argv[1:3]
 badging=subprocess.check_output([aapt,'dump','badging',apk],text=True)
 assert "package: name='app.salon.receiver'" in badging, badging
-assert "versionCode='1'" in badging and "versionName='1.0.0'" in badging
+assert "versionCode='2'" in badging and "versionName='1.0.1'" in badging
 assert ("minSdkVersion:'24'" in badging or "sdkVersion:'24'" in badging) and "targetSdkVersion:'36'" in badging
 assert 'application-debuggable' not in badging
 assert 'android.hardware.touchscreen' not in '\n'.join(x for x in badging.splitlines() if x.startswith('uses-feature:'))
