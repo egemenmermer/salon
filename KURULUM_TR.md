@@ -1,6 +1,6 @@
 # Salon kurulumu
 
-Doğru dosya: **Salon-v1.0.0-universal.apk**. Bu tek APK hem 32 bit hem 64 bit ARM Android TV / Google TV içindir. Android 7.0 veya üzeri gerekir.
+Doğru dosya: **Salon 1.0.1.apk** (derleme betiğinin çıktısında `Salon-v1.0.1-universal.apk`). Bu tek APK hem 32 bit hem 64 bit ARM Android TV / Google TV içindir. Android 7.0 veya üzeri gerekir.
 
 1. APK dosyasını USB belleğe kopyalayın, belleği TV'ye takın ve TV'deki dosya yöneticisinden APK'yı açın. Gerekirse yalnızca bu dosya yöneticisine “Bilinmeyen uygulamaları yükle” izni verin. Menü adları TV markasına göre değişebilir.
 2. Kurulumdan sonra TV'nin uygulamalar bölümünden **Salon**'u açın. TV ve telefon aynı ev ağına bağlı olsun; TV Ethernet kablosuyla da bağlanabilir.
@@ -25,3 +25,7 @@ Bazı video uygulamaları korumalı içeriklerin yansıtılmasına izin vermeyeb
 Güncellemeler aynı `app.salon.receiver` kimliği ve aynı Salon imzasıyla gelmelidir. Upstream/F-Droid AirPlay Server ayrı uygulamadır; Salon onun üzerine güncelleme değildir. Güncellemeden önce Salon'u kaldırmanız ayarları silebilir.
 
 Gerçek cihazda doğrulanmış ve doğrulanmamış davranışlar için teslimdeki TEST_REPORT.md dosyasına bakın.
+
+## Daha yüksek kalite seçme
+
+Ayarlar ekranında görüntü düğmesine OK ile basarak Otomatik → Akıcı (1080p/60 FPS) → 4K/30 FPS (Deneysel) → Uyumlu seçenekleri arasında geçin ve Kaydet’i seçin. Mevcut yansıtma varsa kumandadan Bağlantıyı kes ile bitirip telefondan yeniden bağlanın. Akıcı seçeneği 60 FPS desteği yoksa 30 FPS’e; 4K seçeneği uygun donanım HEVC desteği yoksa 1080p/30 veya daha düşük hedefe döner. Telefon/Mac ve ağ daha düşük çözünürlük veya FPS gönderebilir. 1.0.1’i mevcut Salon’un üzerine kurun; uygulamayı kaldırmanız gerekmez.

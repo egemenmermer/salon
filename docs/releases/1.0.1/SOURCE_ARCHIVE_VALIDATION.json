@@ -1,0 +1,11 @@
+{
+  "archive": "Salon-v1.0.1-source.zip",
+  "sha256": "aedde2a66576bc3a8d0d1ec9ab61865678038adf4fd548f15c3de6e0275f1729",
+  "fileCount": 11818,
+  "crcVerified": true,
+  "allFilesMatchWorkSource": true,
+  "allFilesMatchGitFreeBuiltDirectory": true,
+  "gitFreeDirectory": "work/source-check/Salon",
+  "nativeOutputsReusedFromPreviousCleanArchiveBuild": true,
+  "privateFilesExcluded": true
+}

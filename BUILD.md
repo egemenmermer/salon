@@ -25,9 +25,9 @@ Her derlemeden önce `scripts/prepare-native.py` native kaynakların ve OpenSSL 
 
 ```sh
 ./scripts/build-release.sh
-./scripts/verify-apk.sh /path/to/Salon-v1.0.0-universal.apk
-python3 scripts/package-source.py /path/to/Salon-v1.0.0-source.zip
-python3 scripts/release-manifest.py /path/to/Salon-v1.0.0-universal.apk   /path/to/Salon-v1.0.0-source.zip "$ANDROID_SDK_ROOT" /path/to/RELEASE_MANIFEST.json
+./scripts/verify-apk.sh /path/to/Salon-v1.0.1-universal.apk
+python3 scripts/package-source.py /path/to/Salon-v1.0.1-source.zip
+python3 scripts/release-manifest.py /path/to/Salon-v1.0.1-universal.apk   /path/to/Salon-v1.0.1-source.zip "$ANDROID_SDK_ROOT" /path/to/RELEASE_MANIFEST.json
 ```
 
 Build script unsigned release APK'yı alır, 16 KB ZIP hizalaması yapar, özel anahtarla imzalar ve doğrular. Debug APK'yı yeniden adlandırmaz. APK imzalandıktan sonra değiştirilmez. Doğrulama scripti gerçek APK manifestini, ARM64/ARMv7 native kütüphanelerini, DT_NEEDED bağımlılıklarını, ARM64 ELF LOAD ve RELRO alanlarının 16 KB hizalamasını, ARMv7 ELF LOAD alanlarının en az 4 KB hizalamasını ve imzayı inceler. x86_64 debug gerekiyorsa ayrı `-PsalonDebugX86=true :app:assembleDebug` kullanılabilir; release ana teslim iki ARM mimarisidir.
@@ -50,3 +50,7 @@ Gerçekte çalıştırılan kontroller ve ortam sınırlamaları TEST_REPORT.md'
 AndroidX Graphics Path 1.0.1 aynı sürümün `8a05a22af450d589ef911d772a001a49dcb05b71` kaynaklarından NDK 27 ile yeniden bağlanır. Java API ve tüketici kuralları JNI içermeyen vendored AAR içinde korunur; hazır AAR içindeki RELRO 16 KB sınırına uymadığı için native kaynak yeniden derlenir. Kullanılmayan DataStore bağımlılığı kaldırılmıştır; ayarlar SharedPreferences kullanır.
 
 Native PIN koruma testleri için host OpenSSL geliştirme başlıklarını kurun ve `SALON_HOST_OPENSSL=/path/to/openssl ./scripts/test-pairing.sh` çalıştırın. Bu testler host ASan/UBSan üzerinde çalışır; gerçek Apple protokol uyumluluğunun kanıtı değildir.
+
+1.0.1 release versionCode 2’dir. Önceki Salon release anahtarı kullanılır. HEVC yalnızca kullanıcı 4K seçtiğinde ve TV donanımı gerekli kapasiteyi bildirdiğinde ilan edilir; varsayılan mod H.264 1080p/30’dur.
+
+Upstream GitHub Actions dosyaları `docs/upstream/workflows/` altında referans olarak korunur. Salon için etkin bir GitHub Actions iş akışı kurulmamıştır; doğrulanmış derleme ve imzalama yolu yukarıdaki yerel betiklerdir.

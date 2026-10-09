@@ -1,32 +1,36 @@
-# Salon doğrulama raporu
+# Salon 1.0.1 doğrulama raporu
 
-Bu rapor derleme ortamı ve gerçekten çalıştırılan kontrolleri ayırır. Derleme başarısı, gerçek Apple cihazının bağlandığı anlamına gelmez.
+## Görüntü seçenekleri
 
-## Tamamlanan otomatik kontroller
+Otomatik: en fazla 1080p/30; Akıcı: hedef 1080p/60; 4K: hedef 3840×2160/30, deneysel ve donanım HEVC desteği gerektirir; Uyumlu: en fazla 720p/30. Hedefler decoder kapasitesine göre aşağı iner. 60 FPS desteklenmiyorsa 1080p/30 denenir; 4K desteklenmiyorsa HEVC ilan edilmez ve H.264 1080p/30 veya daha düşük hedef seçilir. Yazılım decoder’ı en fazla 720p/30 ile sınırlıdır. Kalite, uygulama özel ayarlarında tutulur; etkin oturumda değişiklik sonraki oturuma ertelenir.
 
-- Kotlin durum modeli: 9 test, 0 başarısızlık ve 0 hata. Hazır olmak için dinleyici + iki servis ilanı; gerçek ilan adı; izin/kayıt hatasının hazır olmaması; durdurmadan sonra eski callback’lerin etkisizliği; yeniden başlatma; oturum sonunda kod temizliği; UTF-8 ad sınırı; kontrollü zaman aşımı; yeni/bitmiş oturuma eski zaman aşımının etkisizliği.
-- Native PIN/SRP: host OpenSSL 3.6.1, ASan + UBSan ile rastgele PIN ve SRP private key üretim hatası, ilk adımsız proof, doğrulanmamış sıfır anahtardan türetilmiş geçerli GCM yükü, kısa/yanlış proof, sıfır public key ve doğrulama tamamlanmadan oturum temizliği. Koruma testleri geçti. Bunlar gerçek Apple cihazından doğru/yanlış PIN testinin yerine geçmez.
-- Native HTTP/RTSP: host AddressSanitizer + UndefinedBehaviorSanitizer ile normal ve tek byte parçalı RTSP, gövde sınırı, toplam başlık sınırı ve başlık sayısı. Bellek veya UB raporu yok.
-- Renk kontrast hesabı: kullanılan ana/ikincil metin, odak, hazır ve hata renkleri için oranlar 9,11:1 ile 16,94:1 arasında; 4,5:1 altı yok. Kumanda odak ve büyütülmüş metin kontrolleri ayrı cihaz testidir.
+TV arayüzü düşük çözünürlükte olsa da mirroring SurfaceView tamponu gelen video boyutuyla, kenar başına en fazla 3840 piksel olarak ayarlanır. Dikey/yatay oran korunur. Bu değişikliğin gerçek TV’de görsel kontrolü yapılmadı.
 
-## Upstream referans denemeleri
+Bu değerler Apple göndericisine bildirilen üst hedeflerdir. Gerçek çözünürlük ve kare hızı telefon/Mac ve ağa bağlı olarak daha düşük olabilir. Derleme ve kapasite seçimi testleri, gerçek 4K/30 veya 1080p/60 yayın kanıtı değildir.
 
-Arayüz değişikliğinden önce v0.0.31 kaynaklarıyla üç referans derleme denendi. İlkinde eşzamanlı SDK hazırlığından kaynaklanan dosya çakışması, ikincisinde eksik android.jar, üçüncüsünde native derleme sırasında No space left hatası oluştu. SDK yeniden kuruldu ve sonraki derlemeler daha düşük bellek/paralellikle düzenlendi. Bu denemelerden başarılı referans APK üretilmedi; Salon arayüzü için çalışan referans cihaz testi sayılmaz.
+## Otomatik kontroller
 
-## Paket ve cihaz kontrolleri
+- Durum modeli: 9 test. Dinleyici ve iki ilan olmadan hazır olmama, gerçek ilan adı, kayıt/izin hatası, eski callback, durdurma/yeniden başlatma, oturum sonu PIN temizliği, UTF-8 ad doğrulaması ve kontrollü zaman aşımı.
+- Kalite politikası: 7 test. 1080p/60 seçimi; 60 FPS yoksa 1080p/30; donanım HEVC/4K kapasitesi yoksa H.264 hedefe dönme; 1080p yoksa 720p; hiçbir hedef yoksa başarısızlık; varsayılan ve uyumlu sınırları; ayar round-trip ve eski ayar taşıması; UHD/dikey Surface boyutu ve hatalı boyut reddi. Android MediaCodec cihaz sorguları bu host testlerinin kapsamına girmez.
+- Native kaynaklar 1.0.0 ile aynıdır. Önceki host ASan/UBSan HTTP/RTSP ve PIN/SRP testleri geçmiştir: parçalı RTSP ve istek sınırları; RNG hatası; sırası bozuk eşleştirme; doğrulanmamış sıfır anahtarlı GCM yükü; kısa/yanlış proof; sıfır public key; oturum temizliği. Bunlar gerçek Apple eşleştirme testi değildir.
+- APK doğrulaması: uygulama kimliği app.salon.receiver, versionCode 2, sürüm 1.0.1, minSdk 24 / targetSdk 36, yalnız ARM64 + ARMv7, debuggable kapalı, TV launcher ve banner/icon. Overlay, kayıt, boot, foreground-service ve ACCESS_LOCAL_NETWORK izinleri yok.
+- V2/V3 imzası; ZIP 16 KB hizalaması; iki ABI’nin ELF LOAD alanları ve ARM64 RELRO; native bağımlılık kapanışı; R8 sonrasında 22 native tanım ve 22 callback, log ve Graphics Path JNI korunumu doğrulama betikleriyle geçti. Nihai sonuçlar beraberindeki verification kayıtlarındadır.
+- İmza anahtarı önceki Salon release ile aynıdır; önceki uygulamanın üzerine güncelleme için versionCode artırılmıştır.
 
-TV API 33 ARM64 emülatör görüntüsü kuruldu ve başlatma denendi. Emülatörün boş alan ön kontrolü başlatmayı reddetti; çalışan TV oturumu oluşmadı. Bu yüzden emülatörde kurulum, launcher, kumanda, odak, HOME/Geri, yeniden açılış, büyük metin ve ayar koruması: **Test edilmedi**. Fiziksel cihaz taramasında yetkili Android cihazı yoktu.
+## Kaynak arşivi
 
-- İlk kaynak arşivi ayrı, `.git` ve önceki uygulama/native build çıktıları olmayan dizine açıldı. JDK/SDK ve Maven bağımlılıkları aynı sabit araçlardır. `testDebugUnitTest` + `assembleRelease`: **BUILD SUCCESSFUL, 16 dakika 45 saniye, 84 görev çalıştırıldı**. OpenSSL dahil iki ARM native sürüm kaynaktan derlendi.
-- Son PIN koruması ve metin değişikliklerini içeren arşiv aynı ayrı dizine açıldı. Değişen kaynaklar yeniden derlendi ve aynı özel anahtarla imzalandı: **BUILD SUCCESSFUL, 44 saniye**. Kaynak arşivi son teslim belgeleriyle yeniden paketlendi; kod ve build girdilerinin arşiv ile doğrulama dizininde aynı olduğu byte karşılaştırmasıyla kontrol edildi.
-- Son imzalı universal APK: `app.salon.receiver`, 1.0.0 / versionCode 1, minSdk 24, targetSdk 36. ARM64 + ARMv7; debuggable kapalı; TV launcher, banner/icon ve dokunmatik gerekmemesi manifestten kontrol edildi. Kaldırılması istenen overlay, kayıt, boot, foreground-service ve yerel ağ runtime izinleri yok.
-- APK v2/v3 imzası, ZIP 16 KB sayfa hizalaması, iki mimaride paketlenen tüm ELF dosyalarının LOAD alanları ve ARM64 RELRO alanları geçti. Native DT_NEEDED bağımlılıkları pakette veya izin verilen Android sistem kütüphanelerinde bulundu. Alıcı, OpenSSL, Oboe ve C++ runtime statik bağlanır; AndroidX Graphics Path aynı 1.0.1 kaynaklarından doğru hizalama ile yeniden derlenmiştir.
-- Son APK DEX ve ELF kontrolü: R8 sonrasında 22 NativeBridge native metodu, 22 alıcı callback imzası, log callback’i ve AndroidX Graphics Path JNI tanımları korunmuş; her iki ARM kütüphanesinde gerekli JNI girişleri dışa aktarılmıştır. Bu statik doğrulama, cihaz üzerinde JNI çalıştırma testi değildir.
+Kaynaklar .git olmayan ayrı doğrulama dizininde derlendi. Native kaynaklar değişmediği için önceki temiz kaynak arşivi derlemesinin native çıktıları kullanılabildi; bu ilk derleme OpenSSL dahil iki ABI’yi kaynaktan derlemiş, 84 görevi çalıştırmış ve 16 dakika 45 saniyede tamamlanmıştı. 1.0.1’in Kotlin/Compose ve kaynak değişiklikleri ayrı dizinde yeniden derlendi. Son arşivin tüm dosyaları çalışma kaynağı ve doğrulama dizini ile byte karşılaştırmasıyla eşleştirildi. Keystore, kimlik bilgileri, Git, önbellek ve build çıktıları kaynak arşivine alınmaz. Maven/JDK/SDK araçları kaynak arşivinden ayrı derleme gereksinimleridir.
 
-## Gerçek cihaz sınırları
+## Test edilmedi
 
-Yetkili fiziksel Android TV bulunmadı ve iPhone/iPad test cihazına erişilemedi. Derleme MacBook Air üzerinde yapıldı; bu Mac’in gerçek AirPlay göndericisi olarak bir TV’ye bağlantısı test edilmedi. Gerçek iPhone/iPad/Mac keşfi, doğru/yanlış kodla gerçek Apple eşleştirmesi, sesli ekran yansıtma, dikey/yatay geçiş, ikinci gerçek kaynak reddi, ardışık bağlantı ve 10–15 dakika yayın: **Test edilmedi**.
+Bağlı/yetkili Android cihazı son ADB taramasında görünmedi. Önceki TV API 33 emülatör başlatma denemesi çalışır TV oturumu oluşturmadı. Kumanda, odak, büyük metin, Surface boyutu değişimi, HOME/Geri, yeniden açılış, cihazda ayar koruması ve güncelleme kurulumu: **Test edilmedi**.
 
-Mac bağlantı düşmesi (#54), gerçek TV decoder/ashmem (#50), doğrudan HLS (#49), HEVC (#51), telefon/TV ses seviyesi (#53), fotoğraf paylaşımı (#41): **Test edilmedi**. HEVC varsayılan kapalıdır. HLS ve yalnızca ses, ekran yansıtmaya ait başarı kanıtı olarak değerlendirilmez. Korumalı HLS, doğrulanmış aynı kaynak RAOP oturumu ister; bunu yapmayan doğrudan-video göndericileri kod açıkken reddedilir.
+Gerçek iPhone/iPad/Mac keşfi, doğru/yanlış PIN, 1080p/60 ve 4K/30 yayının gerçek çözünürlüğü/FPS’i, sesli yansıtma, yön değişimi, ikinci kaynak, ardışık bağlantı, Wi-Fi/Ethernet toparlanması ve 10–15 dakika yayın: **Test edilmedi**. MacBook Air derleme hostudur; gerçek TV’ye AirPlay göndericisi olarak bağlantısı test edilmedi.
 
-Gerçek Wi-Fi/Ethernet geçişi ve toparlanma, gerçek NSD isim çakışması, etkin oturumda ayar ertelemesi ve yalnızca ses aktarımı: **Test edilmedi**. Ağ/kayıt/PIN olayları için model ve native koruma testlerinin kapsamı yukarıda belirtilmiştir; bunlar uçtan uca cihaz testleri değildir.
+Doğrudan HLS ve yalnızca ses ayrı ayrı: **Test edilmedi**. Korumalı HLS doğrulanmış aynı kaynak RAOP oturumu ister. Upstream Mac bağlantı düşmesi (#54), decoder/ashmem (#50), doğrudan video (#49), HEVC (#51), ses seviyesi (#53), fotoğraf paylaşımı (#41) regresyonları: **Test edilmedi**. Bu yüzden 4K seçeneği deneysel işaretlidir.
+
+Upstream referans v0.0.31 için arayüz değişikliklerinden önceki üç derleme denemesi başarısızdı; başarılı upstream referans APK üretilmedi. Ayrıntılar önceki 1.0.0 teslim raporundadır.
+
+## Nihai 1.0.1 sonucu
+
+Son Git olmayan doğrulama dizini derlemesi 2 dakika 14 saniyede tamamlandı. 16 otomatik test geçti (9 durum modeli + 7 kalite politikası). İmzalı universal APK, manifest, ZIP/ELF, native bağımlılık ve JNI/R8 kontrollerini geçti. İmza sertifikası önceki release ile eşleşti. Doğrulama kaydı: verification/quality-surface-release.log.

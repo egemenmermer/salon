@@ -1,0 +1,19 @@
+{
+  "applicationId": "app.salon.receiver",
+  "versionName": "1.0.1",
+  "versionCode": 2,
+  "minSdk": 24,
+  "targetSdk": 36,
+  "packagedAbis": [
+    "arm64-v8a",
+    "armeabi-v7a"
+  ],
+  "apkFileName": "Salon-v1.0.1-universal.apk",
+  "apkSizeBytes": 14270485,
+  "apkSha256": "f724e590ba2b8f8b5e58c3b75f8e6638e046d8901f1024f5501976912323b9eb",
+  "signingCertificateSha256": "8b5fcebe6102a42518c9bccd19539a061b5e448a550b0a6aa92f838f58506baa",
+  "sourceArchiveSha256": "aedde2a66576bc3a8d0d1ec9ab61865678038adf4fd548f15c3de6e0275f1729",
+  "sourceCommit": "c8defdd70d7e6a04f4f1b71d353653682d594106",
+  "sourceDirty": true,
+  "upstreamCommit": "c8defdd70d7e6a04f4f1b71d353653682d594106"
+}
