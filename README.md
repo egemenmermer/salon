@@ -13,7 +13,7 @@ Android TV için yerel ağda çalışan AirPlay alıcısı. Kotlin/Compose aray�
 
 ## İndir ve kur
 
-[APK ve TV kurulum kılavuzu](https://github.com/egemenmermer/salon-tv/releases/download/v1.0.1/Salon%201.0.1.zip) · [Yalnızca APK](https://github.com/egemenmermer/salon-tv/releases/download/v1.0.1/Salon%201.0.1.apk) · [Tüm sürümler ve karşılık gelen kaynaklar](https://github.com/egemenmermer/salon-tv/releases)
+[APK ve TV kurulum kılavuzu](https://github.com/egemenmermer/salon-tv/releases/download/v1.0.1/Salon.1.0.1.zip) · [Yalnızca APK](https://github.com/egemenmermer/salon-tv/releases/download/v1.0.1/Salon.1.0.1.apk) · [Tüm sürümler ve karşılık gelen kaynaklar](https://github.com/egemenmermer/salon-tv/releases)
 
 ZIP’i açın, APK’yı TV’ye aktarın ve yükleyin. Ayrıntılar paketteki kılavuzdadır.
 
