@@ -10,7 +10,7 @@ with zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
   rel=path.relative_to(root)
   if any(p in excluded for p in rel.parts) or path.name in secrets or path.suffix in {'.jks','.p12','.keystore'}:continue
   if not path.is_file() or path.resolve()==out:continue
-  info=zipfile.ZipInfo('Salon/'+rel.as_posix(),date_time=(2026,10,8,0,0,0))
+  info=zipfile.ZipInfo('AirPlayReceiver/'+rel.as_posix(),date_time=(2026,10,12,0,0,0))
   info.external_attr=((0o100755 if path.stat().st_mode&0o111 else 0o100644)<<16)
   info.compress_type=zipfile.ZIP_DEFLATED
   z.writestr(info,path.read_bytes())

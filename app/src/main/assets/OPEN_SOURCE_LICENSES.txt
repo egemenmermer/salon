@@ -1,9 +1,9 @@
-SALON — AÇIK KAYNAK BİLDİRİMLERİ
+AIRPLAY RECEIVER — OPEN-SOURCE NOTICES
 
-Salon GPL-3.0 kapsamındadır. Apple Inc. ile bağlantılı değildir. Karşılık gelen kaynak kodu teslim paketindeki kaynak ZIP arşivindedir.
+This application is licensed under GPL-3.0 and is not affiliated with Apple Inc. Corresponding source code is provided in the source archive attached to each release.
 
 
-Salon / Android AirPlay Server / UxPlay — GPL-3.0
+AirPlay Receiver / Android AirPlay Server / UxPlay — GPL-3.0
                     GNU GENERAL PUBLIC LICENSE
                        Version 3, 29 June 2007
 
@@ -3239,7 +3239,7 @@ of this License. But first, please read
 
 
 ===== Additional upstream acknowledgements =====
-The upstream Android AirPlay Server credits Next Player (https://github.com/anilbeesetti/nextplayer) for video player work. Its renderer/DecoderSelector implementation references Moonlight Android's MediaCodecHelper (https://github.com/moonlight-stream/moonlight-android). The corresponding adapted source remains in this GPL application source tree. Salon is not affiliated with Apple Inc.
+The upstream Android AirPlay Server credits Next Player (https://github.com/anilbeesetti/nextplayer) for video player work. Its renderer/DecoderSelector implementation references Moonlight Android's MediaCodecHelper (https://github.com/moonlight-stream/moonlight-android). The corresponding adapted source remains in this GPL application source tree. This application is not affiliated with Apple Inc.
 
 
 ===== Oboe 1.9.3 source license =====
@@ -5862,3 +5862,5 @@ CONTRIBUTORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS WITH THE
 SOFTWARE.
+
+AndroidX Graphics Path 1.0.1: Android Open Source Project, Apache-2.0. Native source release commit 8a05a22af450d589ef911d772a001a49dcb05b71. Original Java AAR retained without precompiled JNI libraries; JNI rebuilt locally with 16 KB page settings.

@@ -20,5 +20,5 @@ trap 'rm -f "$ALIGNED"' EXIT
 "$TOOLS/zipalign" -f -P 16 4 "$UNSIGNED" "$ALIGNED"
 "$TOOLS/apksigner" sign --v4-signing-enabled false --ks "$SALON_KEYSTORE" --ks-key-alias "${SALON_KEY_ALIAS:-salon}" \
   --ks-pass env:SALON_STORE_PASSWORD --key-pass env:SALON_KEY_PASSWORD \
-  --out "$DEST/Salon-v1.0.1-universal.apk" "$ALIGNED"
-"$ROOT/scripts/verify-apk.sh" "$DEST/Salon-v1.0.1-universal.apk"
+  --out "$DEST/AirPlay Receiver 1.0.2.apk" "$ALIGNED"
+"$ROOT/scripts/verify-apk.sh" "$DEST/AirPlay Receiver 1.0.2.apk"

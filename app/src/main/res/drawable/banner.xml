@@ -1,7 +1,8 @@
+<?xml version='1.0' encoding='utf-8'?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="160dp" android:height="90dp" android:viewportWidth="320" android:viewportHeight="180">
-<path android:fillColor="#111315" android:pathData="M0,0H320V180H0Z"/>
-<path android:fillColor="@android:color/transparent" android:strokeColor="#A7C7FF" android:strokeWidth="4" android:strokeLineJoin="round" android:pathData="M34,58H108V111H34Z M56,122H86 M71,111V122"/>
-<path android:fillColor="@android:color/transparent" android:strokeColor="#9BD0B0" android:strokeWidth="4" android:strokeLineCap="round" android:pathData="M51,78Q71,60 91,78 M60,88Q71,78 82,88 M70,98H72"/>
-<!-- Original line lettering: SALON -->
-<path android:fillColor="@android:color/transparent" android:strokeColor="#F4F4F5" android:strokeWidth="4" android:strokeLineJoin="round" android:strokeLineCap="round" android:pathData="M158,74H141V88H158V104H141 M169,104L180,74L191,104 M174,93H186 M202,74V104H220 M234,74H251V104H234Z M264,104V74L283,104V74"/>
+    <path android:fillColor="#111315" android:pathData="M0,0H320V180H0Z" />
+    <group android:scaleX="1.5" android:scaleY="1.5" android:translateX="50" android:translateY="-42">
+        <path android:fillColor="@android:color/transparent" android:strokeColor="#A7C7FF" android:strokeWidth="4" android:strokeLineJoin="round" android:pathData="M34,58H108V111H34Z M56,122H86 M71,111V122" />
+        <path android:fillColor="@android:color/transparent" android:strokeColor="#9BD0B0" android:strokeWidth="4" android:strokeLineCap="round" android:pathData="M51,78Q71,60 91,78 M60,88Q71,78 82,88 M70,98H72" />
+    </group>
 </vector>

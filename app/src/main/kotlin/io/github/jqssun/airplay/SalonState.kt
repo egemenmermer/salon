@@ -2,7 +2,7 @@ package io.github.jqssun.airplay
 
 /** Pure event model: TCP probes alone never imply pairing or successful playback. */
 enum class SalonStage { PREPARING, NO_NETWORK, READY, CONNECTING, PIN, VIDEO, AUDIO, START_ERROR, VIDEO_ERROR, PERMISSION }
-data class SalonState(val stage: SalonStage = SalonStage.PREPARING, val tvName: String = "Salon TV", val pin: String? = null, val detail: String = "")
+data class SalonState(val stage: SalonStage = SalonStage.PREPARING, val tvName: String = "Android TV", val pin: String? = null, val detail: String = "")
 
 class ReceiverStateMachine {
     @Volatile var generation = 0L; private set
