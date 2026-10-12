@@ -32,9 +32,11 @@ python3 scripts/release-manifest.py /path/to/Salon-v1.0.1-universal.apk   /path/
 
 Build script unsigned release APK'yı alır, 16 KB ZIP hizalaması yapar, özel anahtarla imzalar ve doğrular. Debug APK'yı yeniden adlandırmaz. APK imzalandıktan sonra değiştirilmez. Doğrulama scripti gerçek APK manifestini, ARM64/ARMv7 native kütüphanelerini, DT_NEEDED bağımlılıklarını, ARM64 ELF LOAD ve RELRO alanlarının 16 KB hizalamasını, ARMv7 ELF LOAD alanlarının en az 4 KB hizalamasını ve imzayı inceler. x86_64 debug gerekiyorsa ayrı `-PsalonDebugX86=true :app:assembleDebug` kullanılabilir; release ana teslim iki ARM mimarisidir.
 
-## Özel anahtar teslim notu
+## Kendi anahtarınız ve resmî güncellemeler
 
-Bu çalışma için anahtar, sohbet çalışma alanının `work/.salon-signing/salon-release.p12` dosyasında oluşturuldu; parola aynı özel klasördeki `credentials.json` dosyasındadır. Klasör izinleri 700, dosya izinleri 600'dür. Bu dosyalar kaynak ZIP'ine, dist'e veya Git'e dahil değildir. **Bu çalışma alanı kalıcı yedek değildir.** Kullanıcı anahtarı ve parolayı ayrı, güvenli bir yerde yedeklemelidir; anahtar kaybolursa aynı imzayla güncelleme üretilemez. Sonraki release'lerde bu anahtar kullanılmalı ve versionCode artırılmalıdır.
+Resmî Salon release anahtarı ve parolası özel tutulur; bu depoda veya kaynak arşivlerinde yoktur. Katkıda bulunmak için bu anahtara ihtiyaç yoktur. Yerel imzalama için kendi keystore’unuzu oluşturun ve yukarıdaki ortam değişkenlerini güvenli şekilde sağlayın; anahtar ve parolayı depoya eklemeyin. Bağımsız güvenli yedek tutun.
+
+Kendi anahtarınızla imzalanmış bir APK, resmî Salon’un üzerine güncelleme olarak kurulamaz. Resmî sürümler aynı imzayı kullanır ve versionCode artırılır. Gerçek cihazda güncelleme kurulumu henüz test edilmedi.
 
 ## Resmî kaynaklar
 
