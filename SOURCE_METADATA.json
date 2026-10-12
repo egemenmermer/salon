@@ -3,7 +3,7 @@
   "sourceDirty": true,
   "upstreamCommit": "c8defdd70d7e6a04f4f1b71d353653682d594106",
   "upstreamTag": "v0.0.31",
-  "note": "Salon changes are materialized in this archive; sourceCommit identifies the upstream base, sourceDirty records modifications.",
+  "note": "Receiver adaptations are materialized in this archive; sourceCommit identifies the upstream base, sourceDirty records modifications.",
   "nativeDependencies": {
     "UxPlay": "462153392f2e30937424922039ff9f0cda5e7b1a",
     "ffmpeg": "38b88335f99e76ed89ff3c93f877fdefce736c13",

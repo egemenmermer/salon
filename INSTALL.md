@@ -1,0 +1,37 @@
+# Install and use the Android TV AirPlay receiver
+
+## Requirements
+
+Android TV or Google TV running Android 7.0 or newer, with ARM64 or ARMv7. This APK does not run on Samsung Tizen or LG webOS. The sender and TV must share a home network; the TV may use Ethernet while the sender uses Wi-Fi.
+
+## Install
+
+1. Extract the release ZIP. Copy **AirPlay Receiver 1.0.2.apk** to a USB drive, or transfer it directly to the TV. APKs are installed on the TV; they are not run on your computer.
+2. Open the APK using a TV file manager. If prompted, enable “Install unknown apps” for that file manager, then return to the installer. Menu names vary by TV.
+3. Install and open **AirPlay Receiver** from the TV application launcher. Wait until it shows “Ready to connect”.
+
+## Mirror an iPhone, iPad or Mac
+
+On an iPhone/iPad, open Control Center and tap **Screen Mirroring** (the overlapping screens icon). Choose the name displayed on the TV; the default for a new installation is **Android TV**. Enter the four-digit TV PIN in the sender prompt when requested. On a Mac, use Control Center → Screen Mirroring in the same way.
+
+PIN is on by default. There is no fixed default code. Random code generation failure prevents startup. PIN may be explicitly turned off in settings; devices on the local network can then connect without a code.
+
+## Remote controls and settings
+
+Press OK or Back during mirroring to open the controls. Continue closes them; they close automatically after about five seconds without interaction. Disconnect ends the session. Use the TV remote for volume. On the sender, Stop Mirroring also ends mirroring.
+
+HOME stops the receiver when you leave the app. Open the app again to restart it. Only one active source is supported; end the current connection before using another sender.
+
+In Settings, edit the TV name or press the Quality button to cycle through Automatic (up to 1080p/30), Smooth (target 1080p/60), experimental 4K (target 3840×2160/30 with supported hardware HEVC) and Compatible (up to 720p/30). Save, disconnect the current session and reconnect. Unsupported profiles fall back; the sender and network may transmit below the selected target. Real 4K/30 and 1080p/60 output have not been measured on a TV.
+
+## Update
+
+Official 1.0.2 uses the same package ID and signing certificate as earlier releases. Install it over the existing application without uninstalling. Your saved TV name is preserved, so an older installation may still display its previous name; change it in Settings if desired. Uninstalling may erase settings. Builds signed with a different key cannot replace an official installation in place. Actual update installation on a TV has not been tested.
+
+## Troubleshoot
+
+Keep the receiver open, confirm that both devices share the same network, and avoid guest-network isolation. VPNs or router device-isolation settings may prevent discovery. Use the actual name displayed on the TV if a collision changed the advertised name. Reopen the sender’s mirroring list or use Try again / Connection help in the app.
+
+For video issues, disconnect, choose Compatible and retry. Protected content may be restricted by the source app. Screen mirroring, direct video/HLS and audio-only playback are separate paths and are not universally supported.
+
+See [FAQ](docs/FAQ.md) and [TEST_REPORT.md](TEST_REPORT.md). Physical TV–Apple connectivity, remote navigation, updates and long sessions have not been tested. Builds and automated checks do not prove interoperability.

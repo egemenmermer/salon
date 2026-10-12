@@ -1,36 +1,35 @@
-# Salon 1.0.1 doğrulama raporu
+# Verification report
 
-## Görüntü seçenekleri
+## Scope
 
-Otomatik: en fazla 1080p/30; Akıcı: hedef 1080p/60; 4K: hedef 3840×2160/30, deneysel ve donanım HEVC desteği gerektirir; Uyumlu: en fazla 720p/30. Hedefler decoder kapasitesine göre aşağı iner. 60 FPS desteklenmiyorsa 1080p/30 denenir; 4K desteklenmiyorsa HEVC ilan edilmez ve H.264 1080p/30 veya daha düşük hedef seçilir. Yazılım decoder’ı en fazla 720p/30 ile sınırlıdır. Kalite, uygulama özel ayarlarında tutulur; etkin oturumda değişiklik sonraki oturuma ertelenir.
+Version 1.0.2 changes English UI text, functional display names, documentation and release version identifiers. The native engine and pairing guards are unchanged from 1.0.1. Physical TV–Apple connectivity is **not tested**.
 
-TV arayüzü düşük çözünürlükte olsa da mirroring SurfaceView tamponu gelen video boyutuyla, kenar başına en fazla 3840 piksel olarak ayarlanır. Dikey/yatay oran korunur. Bu değişikliğin gerçek TV’de görsel kontrolü yapılmadı.
+Automatic requests up to 1080p/30; Smooth targets 1080p/60; experimental 4K targets 3840×2160/30 with hardware HEVC; Compatible is capped at 720p/30. Unsupported hardware falls back to lower profiles. Software decoding is capped at 720p/30. These are requested upper targets, not measured output.
 
-Bu değerler Apple göndericisine bildirilen üst hedeflerdir. Gerçek çözünürlük ve kare hızı telefon/Mac ve ağa bağlı olarak daha düşük olabilir. Derleme ve kapasite seçimi testleri, gerçek 4K/30 veya 1080p/60 yayın kanıtı değildir.
+## Existing automated evidence
 
-## Otomatik kontroller
+The signed 1.0.1 release passed 16 unit tests: 9 receiver-state tests and 7 quality-policy tests. State tests cover readiness prerequisites, actual names, registration/permission errors, late callbacks, restart, PIN clearing, UTF-8 names and controlled timeout. Quality tests cover target/fallback selection, no viable profile, defaults, persistence/legacy preferences and valid/invalid SurfaceView dimensions. Host tests do not exercise actual device MediaCodec capability queries.
 
-- Durum modeli: 9 test. Dinleyici ve iki ilan olmadan hazır olmama, gerçek ilan adı, kayıt/izin hatası, eski callback, durdurma/yeniden başlatma, oturum sonu PIN temizliği, UTF-8 ad doğrulaması ve kontrollü zaman aşımı.
-- Kalite politikası: 7 test. 1080p/60 seçimi; 60 FPS yoksa 1080p/30; donanım HEVC/4K kapasitesi yoksa H.264 hedefe dönme; 1080p yoksa 720p; hiçbir hedef yoksa başarısızlık; varsayılan ve uyumlu sınırları; ayar round-trip ve eski ayar taşıması; UHD/dikey Surface boyutu ve hatalı boyut reddi. Android MediaCodec cihaz sorguları bu host testlerinin kapsamına girmez.
-- Native kaynaklar 1.0.0 ile aynıdır. Önceki host ASan/UBSan HTTP/RTSP ve PIN/SRP testleri geçmiştir: parçalı RTSP ve istek sınırları; RNG hatası; sırası bozuk eşleştirme; doğrulanmamış sıfır anahtarlı GCM yükü; kısa/yanlış proof; sıfır public key; oturum temizliği. Bunlar gerçek Apple eşleştirme testi değildir.
-- APK doğrulaması: uygulama kimliği app.salon.receiver, versionCode 2, sürüm 1.0.1, minSdk 24 / targetSdk 36, yalnız ARM64 + ARMv7, debuggable kapalı, TV launcher ve banner/icon. Overlay, kayıt, boot, foreground-service ve ACCESS_LOCAL_NETWORK izinleri yok.
-- V2/V3 imzası; ZIP 16 KB hizalaması; iki ABI’nin ELF LOAD alanları ve ARM64 RELRO; native bağımlılık kapanışı; R8 sonrasında 22 native tanım ve 22 callback, log ve Graphics Path JNI korunumu doğrulama betikleriyle geçti. Nihai sonuçlar beraberindeki verification kayıtlarındadır.
-- İmza anahtarı önceki Salon release ile aynıdır; önceki uygulamanın üzerine güncelleme için versionCode artırılmıştır.
+Previous unchanged-native ASan/UBSan HTTP/RTSP and PIN/SRP tests passed: fragmented RTSP, request limits, RNG failure, out-of-order pairing, unverified zero-key GCM, short/wrong proof, zero public key and cleanup. These are not Apple pairing interoperability tests.
 
-## Kaynak arşivi
+1.0.1 APK checks passed: package ID, SDK levels, version, ARM64/ARMv7, non-debuggable, TV launcher/banner/icon, prohibited permissions, v2/v3 signature, ZIP 16 KB alignment, ELF LOAD/ARM64 RELRO, DT_NEEDED closure and preserved 22 native definitions / 22 callbacks plus log and Graphics Path JNI symbols. The certificate matches the earlier official release.
 
-Kaynaklar .git olmayan ayrı doğrulama dizininde derlendi. Native kaynaklar değişmediği için önceki temiz kaynak arşivi derlemesinin native çıktıları kullanılabildi; bu ilk derleme OpenSSL dahil iki ABI’yi kaynaktan derlemiş, 84 görevi çalıştırmış ve 16 dakika 45 saniyede tamamlanmıştı. 1.0.1’in Kotlin/Compose ve kaynak değişiklikleri ayrı dizinde yeniden derlendi. Son arşivin tüm dosyaları çalışma kaynağı ve doğrulama dizini ile byte karşılaştırmasıyla eşleştirildi. Keystore, kimlik bilgileri, Git, önbellek ve build çıktıları kaynak arşivine alınmaz. Maven/JDK/SDK araçları kaynak arşivinden ayrı derleme gereksinimleridir.
+## Source archive validation
 
-## Test edilmedi
+The original clean Git-free source build rebuilt both native ABIs, including OpenSSL, in 84 tasks / 16m45s. 1.0.1 rebuilt Kotlin/Compose in the same Git-free validation directory, reusing unchanged native outputs, and completed in 2m14s. Every archived file was byte-compared against work sources and that directory. Keystores, credentials, Git, caches and outputs are excluded; Maven/JDK/SDK tools are separate requirements.
 
-Bağlı/yetkili Android cihazı son ADB taramasında görünmedi. Önceki TV API 33 emülatör başlatma denemesi çalışır TV oturumu oluşturmadı. Kumanda, odak, büyük metin, Surface boyutu değişimi, HOME/Geri, yeniden açılış, cihazda ayar koruması ve güncelleme kurulumu: **Test edilmedi**.
+1.0.2 was built in the Git-free validation directory with unchanged native outputs reused. Final source/archive byte comparisons are recorded in the delivery verification files.
 
-Gerçek iPhone/iPad/Mac keşfi, doğru/yanlış PIN, 1080p/60 ve 4K/30 yayının gerçek çözünürlüğü/FPS’i, sesli yansıtma, yön değişimi, ikinci kaynak, ardışık bağlantı, Wi-Fi/Ethernet toparlanması ve 10–15 dakika yayın: **Test edilmedi**. MacBook Air derleme hostudur; gerçek TV’ye AirPlay göndericisi olarak bağlantısı test edilmedi.
+## Not tested
 
-Doğrudan HLS ve yalnızca ses ayrı ayrı: **Test edilmedi**. Korumalı HLS doğrulanmış aynı kaynak RAOP oturumu ister. Upstream Mac bağlantı düşmesi (#54), decoder/ashmem (#50), doğrudan video (#49), HEVC (#51), ses seviyesi (#53), fotoğraf paylaşımı (#41) regresyonları: **Test edilmedi**. Bu yüzden 4K seçeneği deneysel işaretlidir.
+- Physical installation/update, launcher, remote focus/navigation, large text, SurfaceView changes, HOME/Back, reopening and on-device preference retention.
+- iPhone/iPad/Mac discovery, correct/wrong PIN, cancellation, real 1080p/60 or 4K/30 output, audio mirroring, orientation changes, second-source rejection, consecutive connections, Wi-Fi/Ethernet recovery and 10–15 minute sessions.
+- Direct HLS and audio-only playback separately; upstream regression scenarios #54, #50, #49, #51, #53 and #41.
 
-Upstream referans v0.0.31 için arayüz değişikliklerinden önceki üç derleme denemesi başarısızdı; başarılı upstream referans APK üretilmedi. Ayrıntılar önceki 1.0.0 teslim raporundadır.
+No authorized Android device was present during the earlier release checks. A TV API 33 emulator startup attempt did not produce a working TV session. The build-host Mac was not tested as a sender to a physical TV. No successful unchanged upstream reference APK was produced in the three pre-customization attempts. No new device testing is claimed for the English text update.
 
-## Nihai 1.0.1 sonucu
+## Final 1.0.2 result
 
-Son Git olmayan doğrulama dizini derlemesi 2 dakika 14 saniyede tamamlandı. 16 otomatik test geçti (9 durum modeli + 7 kalite politikası). İmzalı universal APK, manifest, ZIP/ELF, native bağımlılık ve JNI/R8 kontrollerini geçti. İmza sertifikası önceki release ile eşleşti. Doğrulama kaydı: verification/quality-surface-release.log.
+The retry build completed in 7m 56s. All 16 unit tests passed. The signed universal APK passed signature, versionCode 3 / version 1.0.2, English application label, manifest, both ARM ABIs, native dependencies, ZIP/ELF alignment and JNI/R8 checks. The signing certificate matches previous official releases. All 55 maintained screen strings are English, and the visible launcher brand lettering was removed. PIN remains enabled by default. Resource inputs were compared with the build directory.
+
+The first attempt failed when the disk filled while writing a debug classes JAR. Redundant generated files were removed. The successful retry used a temporary 1536 MB Gradle heap override; the source configuration retains its usual 2048 MB limit. No native or application logic was changed to bypass the failure. Build record: `verification/english-release-retry.log` in the delivery outputs. Physical TV tests remain not run.

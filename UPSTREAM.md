@@ -1,48 +1,55 @@
-# Salon upstream kaydı
+# Upstream sources and adaptations
 
-Kaynak: https://github.com/jqssun/android-airplay-server
-Tag: v0.0.31
-Commit: c8defdd70d7e6a04f4f1b71d353653682d594106
-Lisans: GPL-3.0. Salon applicationId: app.salon.receiver.
+Base: [Android AirPlay Server](https://github.com/jqssun/android-airplay-server), tag `v0.0.31`, commit `c8defdd70d7e6a04f4f1b71d353653682d594106`, GPL-3.0. Application ID remains `app.salon.receiver` for update compatibility.
 
-## Sabit native kaynaklar
+## Pinned native inputs
 
-- UxPlay: 462153392f2e30937424922039ff9f0cda5e7b1a
-- FFmpeg: 38b88335f99e76ed89ff3c93f877fdefce736c13 (ALAC decoder; ağ kapalı, statik build)
-- libplist: f41b1ea67045e0c09339974d83e389972d84f166
-- openssl-cmake: 4edd36a8dab5f85a8f92650b5bdf6e0cab13aab8
-- OpenSSL: 3.4.4; kaynak tar.gz SHA-256: 7bdf55ac20f2779e99e5eca306f824fad2b37dee5a06cc35ed5a8b85a6060010
+| Component | Version / commit |
+| --- | --- |
+| UxPlay | `462153392f2e30937424922039ff9f0cda5e7b1a` |
+| FFmpeg | `38b88335f99e76ed89ff3c93f877fdefce736c13` (static ALAC decoder; network disabled) |
+| libplist | `f41b1ea67045e0c09339974d83e389972d84f166` |
+| openssl-cmake | `4edd36a8dab5f85a8f92650b5bdf6e0cab13aab8` |
+| OpenSSL | 3.4.4; local archive SHA-256 `7bdf55ac20f2779e99e5eca306f824fad2b37dee5a06cc35ed5a8b85a6060010` |
+| Oboe | 1.9.3; `b15f5e39c01a7ada306d959e5129620b145fb8b4` |
+| AndroidX Graphics Path | 1.0.1; `8a05a22af450d589ef911d772a001a49dcb05b71` |
 
-## Korunan yollar
+## Preserved implementation
 
-UxPlay RAOP ve AirPlay protokolü, SRP/PIN ve pair-verify, Android NsdManager üzerinden tek DNS-SD ilan yolu, MediaCodec video ve EGL/SurfaceView, native AAC/ALAC + Oboe ses, Media3 üzerinden doğrudan video/HLS. Ekran yansıtma, ses ve HLS ayrı yollardır. JNI sınıf adları korunmuştur.
+UxPlay RAOP/AirPlay, SRP/PIN and pair-verify; a single Android NsdManager DNS-SD advertisement path; MediaCodec and EGL/SurfaceView video; native AAC/ALAC plus Oboe audio; Media3 direct video/HLS. JNI class names are retained. Mirroring, HLS and audio-only playback are distinct paths.
 
-## Salon değişiklikleri
+## Receiver adaptations
 
-Türkçe Compose TV arayüzü; Activity'ye bağlı görünür alıcı; ağ olayları; iki servis ilanının geri bildirimi; gerçek ilan adı; nesil numarasıyla eski callback iptali; ilk çizilen kare; audio focus; sınırlı kayıtlar; gerçek kod doğrulaması; ikinci kaynak reddi. PIN üretim hatasında sabit kod kaldırıldı. Native pair-verify ve SETUP/RECORD doğrulama kapıları eklendi. SRP proof ve eşleştirme veri kopyası boyutları doğrulanıyor. Unicode TV isimleri standart UTF-8 olarak JNI'den geçiyor. İkinci kaynak HLS ile mevcut aynalamayı kapatamaz.
+Remote-friendly Compose TV interface; visible-Activity-bound receiver; network events; actual advertisement names and registration results; generation-based callback invalidation; first-rendered-frame events; audio focus; bounded diagnostics; native PIN guards and second-source rejection. Fixed PIN fallback was removed; native pair-verify and SETUP/RECORD authentication gates were added. SRP proof and payload lengths are validated. Unicode names use standard UTF-8 across JNI. Another source cannot stop mirroring through HLS.
 
-Upstream'in altı UxPlay yaması korunup kaynaklara uygulanmıştır. Build'de git checkout/apply zorunluluğu kaldırıldı; arşivde native kaynaklar zaten yamalıdır. OpenSSL kaynak tarı yerel ve hash doğrulamalıdır. Native işler ve Gradle daha düşük bellek kullanımı için sınırlandı. AGP 8.10.1 ve kararlı Media3 1.11.1 kullanılıyor. Her paylaşımlı native kütüphanede 16 KB hizalama kontrolü ayrı yapılır.
+The six upstream UxPlay patches remain applied. Build preparation no longer requires checkout/apply or resets: sources are materialized and patched. The local OpenSSL archive is hash-checked. AGP 8.10.1 and stable Media3 1.11.1 are used. Build concurrency is constrained and each shared native library is independently checked for alignment.
 
-Otomatik boot, overlay, PiP, ekran/medya kaydetme ve debug görünümü ürün akışından kaldırıldı. Telefon sesi TV'nin sistem sesini değiştirmez; ses kumandayla ayarlanır. Pairing istemci anahtarları yalnızca sunucunun belleğinde tutulur. Sunucu yeniden açılınca yeniden eşleştirme gerekebilir.
+Boot auto-start, overlay, PiP, media recording and debug UI were removed from the product flow. Sender volume does not change the TV system volume. Pairing client keys remain in server memory; server restart may require pairing again.
 
-## Sınırlar ve bilinen upstream bildirimleri
+The native HTTP/RTSP parser limits URL length to 8 KiB, headers to 64 KiB / 128 pairs and body size to 16 MiB. Protocol/version fragments are accumulated safely. Host ASan/UBSan tests cover byte-fragmented RTSP and size limits.
 
-DRM, çok odalı ses ve tüm AirPlay 2 yolları destek iddiası değildir. 4K UI, 4K alım garantisi değildir. Kod açıkken doğrudan video yolu önce doğrulanmış RAOP kaynağı gerektirir; bu eşleştirmeyi sunmayan doğrudan-video istemcileri reddedilir. HLS yerel playlist proxy'si korunmuştur; dış video kaynakları ayrıca internet gerektirebilir. Destek Apple uygulaması ve TV decoder'ına bağlıdır.
+The active-source guard uses an authenticated or media-established RAOP owner, not connection count. Additional channels from the same network address and IPv6 zone may be accepted; a different source’s takeover/setup is rejected with 409.
 
-İncelenen açık upstream sorunları: #54 Mac bağlantı düşmesi/BLE probe, #50 ashmem erişimi, #49 localhost HLS, #51 HEVC tespiti, #53 ses düzeyi, #41 Fotoğraflar doğrudan-video. Bunlar Salon'da cihaz testi olmadan çözülmüş olarak sunulmaz. HEVC varsayılan kapalı; nohold/bağlantı devralma kapalı; ses ilanı açıktır.
+SRP guards reject out-of-order requests, unverified zero-key-derived GCM data, short proofs and zero client public keys. Random private-key generation failure fails pairing. A native allocation leak on the invalid public-key path was fixed.
 
-Native HTTP/RTSP okuyucusunda URL (8 KiB), toplam başlık (64 KiB), başlık sayısı (128 çift) ve gövde (16 MiB) sınırları uygulanır. Protokol adı ve sürümü parser callback’lerinden biriktirilir; parçalı paketlerde URL tamponunun sonrasına erişilmez. Host üzerindeki AddressSanitizer/UndefinedBehaviorSanitizer testi byte düzeyinde parçalanmış RTSP isteğini ve boyut sınırlarını doğrular.
+## Native packaging and 16 KB alignment
 
-Tek aktif kaynak kontrolü doğrulanmış eşleştirme veya medya kurulumu olan RAOP oturumunu esas alır; salt TCP/protokol bağlantı sayısı cihaz sayısı değildir. Aynı ağ adresi ve IPv6 zone kapsamında aynı kaynağın ek kanalları kabul edilir. Aktif sahibinden farklı bir kaynak için yeni oturum/kurulum devralması 409 ile reddedilir.
+OpenSSL builds only `libssl.a` and `libcrypto.a` and links statically into the receiver; separate libssl.so/libcrypto.so and CLI tools are unnecessary. Algorithm options are retained.
 
-OpenSSL aynı 3.4.4 kaynağından yalnızca `libssl.a` ve `libcrypto.a` hedefleriyle derlenir ve alıcının native kütüphanesine statik bağlanır. Kullanılan algoritma seçenekleri korunur. Gereksiz ikinci paylaşımlı derleme ve CLI araçları üretilmez; APK’da ayrıca libssl.so/libcrypto.so gerekmemesi bu nedenle beklenen davranıştır.
+Oboe 1.9.3 is built from the same pinned source using NDK 27 instead of a prebuilt AAR. `c++_static` links into the single receiver library, avoiding the NDK 27 prebuilt ARM64 libc++_shared RELRO boundary mismatch. No new Gradle/Android module was introduced.
 
-Oboe 1.9.3 (`b15f5e39c01a7ada306d959e5129620b145fb8b4`, https://github.com/google/oboe/tree/1.9.3) kaynakları vendored olarak eklenmiştir. Sürüm korunur; hazır AAR yerine aynı NDK 27 ile statik derlenir. C++ çalışma zamanı `c++_static` olarak tek alıcı .so dosyasına bağlanır. Bu değişiklik NDK 27’nin hazır ARM64 libc++_shared.so dosyasındaki 16 KB RELRO sınır uyumsuzluğunu paket dışına çıkarır. Yeni Gradle/Android modülü oluşturulmaz. Nihai ELF LOAD ve RELRO alanları ayrıca doğrulanır.
+AndroidX Graphics Path 1.0.1 is rebuilt with NDK 27 because its prebuilt RELRO did not meet the 16 KB boundary check. Its original Java API/consumer rules are retained in the vendored AAR without prebuilt JNI binaries. Unused DataStore was removed; SharedPreferences stores settings. Final ELF LOAD and ARM64 RELRO checks remain enabled.
 
-AndroidX Graphics Path 1.0.1 aynı sürümün `8a05a22af450d589ef911d772a001a49dcb05b71` kaynaklarından NDK 27 ile yeniden bağlanır. Java API ve tüketici kuralları JNI içermeyen vendored AAR içinde korunur; hazır AAR içindeki RELRO 16 KB sınırına uymadığı için native kaynak yeniden derlenir. Kullanılmayan DataStore bağımlılığı kaldırılmıştır; ayarlar SharedPreferences kullanır.
+## Version changes
 
-SRP adımları için oturum/kanıt kontrolü eklenmiştir: bozuk veya sırası değiştirilmiş istekler, doğrulanmamış sıfır oturum anahtarından türetilmiş GCM yükü, kısa proof ve sıfır istemci public key reddedilir. Rastgele SRP private key üretimi başarısızsa eşleştirme başarısız olur. Geçersiz SRP public key yolundaki native kaynak sızıntısı giderilmiştir.
+1.0.1 added 1080p/60 and experimental hardware HEVC 4K/30. Default H.264 1080p/30 remains. Decoder capacity includes size/rate and hardware checks, with standard capacity queries when performance-points data is empty. Software is capped at 720p/30. Unsupported profiles fall back through 1080p/30, 720p/30, 540p/30 and 360p/30; no viable profile fails startup. Changed settings defer until the next session.
 
-1.0.1: 1080p/60 ve donanım HEVC ile deneysel 4K/30 kalite seçenekleri eklendi. Otomatik 1080p/30 varsayılanı korunur. Decoder seçiminde bildirilen boyut/rate ve donanım kapasitesi kontrol edilir; boş performance-points listesinde standart kapasite sorgusuna dönülür. Yazılım decoder’ı en fazla 720p/30 ile sınırlandırılır. Desteklenmeyen hedefler sırayla 1080p/30, 720p/30, 540p/30, 360p/30’a iner; hiçbir hedef desteklenmiyorsa başlangıç başarısız olur. Kalite ayarı oturum sırasında değişirse sonraki oturuma ertelenir. Kaynak protokol açıklaması: https://github.com/FDH2/UxPlay
+The SurfaceView buffer follows received dimensions, up to 3840 pixels per edge, instead of assuming the TV UI resolution; layout preserves portrait aspect ratio. References: [UxPlay](https://github.com/FDH2/UxPlay), [Media3 SurfaceView](https://developer.android.com/media/media3/ui/surface), [SurfaceHolder.setFixedSize](https://developer.android.com/reference/android/view/SurfaceHolder#setFixedSize(int,int)).
 
-EGL video SurfaceView buffer boyutu gelen video çözünürlüğüne göre, en fazla 3840 piksel kenar ile ayarlanır; TV arayüzü 1080p olduğunda 4K video tamponunu 1080p’ye indirmez. Dikey görüntü oranı layout tarafından korunur. Android açıklaması: https://developer.android.com/media/media3/ui/surface ve https://developer.android.com/reference/android/view/SurfaceHolder#setFixedSize(int,int)
+1.0.2 changes all application text and maintained project documentation to English, uses **AirPlay Receiver** as the visible app name and **Android TV** as the default new-install receiver name. Existing preferences, package ID, native implementation and signing identity remain. Upstream code, license texts and historical release artifacts retain their original attribution and content.
+
+## Compatibility limits
+
+No complete AirPlay 2, DRM or multiroom-audio support is claimed. 4K UI is not evidence of 4K reception. With PIN on, direct video requires the same authenticated RAOP source; incompatible direct-video clients are rejected. The HLS playlist proxy remains, and external sources may require internet.
+
+Previously reviewed upstream reports: Mac drops/BLE probe (#54), ashmem (#50), localhost HLS (#49), HEVC detection (#51), volume (#53) and Photos direct video (#41). These are not represented as fixed without device tests. Their current upstream status has not been rechecked for this documentation update. HEVC remains off by default; takeover/nohold is disabled; audio advertisement is enabled.
